@@ -1,62 +1,65 @@
-# Phase One Backend Skeleton Implementation Plan
+# 第一阶段后端基础骨架实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **供编码代理执行：** 必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，按任务逐项实施。所有步骤使用复选框跟踪。
 
-**Goal:** Replace the Gin starter with a runnable, testable Go backend skeleton using Hertz, Eino Graph, and Neon Postgres with pgvector support.
+**目标：** 将当前 Gin 模板替换为基于 Hertz、Eino Graph 和 Neon Postgres（已启用 pgvector）的可运行、可测试 Go 后端骨架。
 
-**Architecture:** Hertz owns transport and lifecycle, Eino Graph owns typed request orchestration, and `pgxpool` owns PostgreSQL connectivity behind small interfaces. The skeleton exposes liveness/readiness endpoints, compiles and invokes a minimal Eino graph, supplies direct-connection SQL migrations for Neon, and leaves model/retrieval behavior for the next Phase One increment.
+**架构：** Hertz 负责传输协议与服务生命周期，Eino Graph 负责强类型请求编排，`pgxpool` 通过小型接口负责 PostgreSQL 连接。骨架提供存活与就绪检查、可编译和调用的最小 Eino Graph、适用于 Neon 直连地址的 SQL 迁移，并将模型调用与完整检索能力留到第一阶段的后续增量。
 
-**Tech Stack:** Go 1.23+, Hertz v0.10.5, Eino v0.9.12, pgx/v5 v5.7.4, pgvector-go v0.4.0, Neon Postgres with the `vector` extension.
+**技术栈：** Go 1.23+、Hertz v0.10.5、Eino v0.9.12、pgx/v5 v5.7.4、pgvector-go v0.4.0、启用 `vector` 扩展的 Neon Postgres。
 
-## Global Constraints
+## 全局约束
 
-- Backend only; do not implement iOS, Android, or a replacement web client.
-- Replace Gin with Hertz and do not keep a Gin compatibility layer.
-- Use Eino Graph for all Agent orchestration, including the minimal skeleton path.
-- Use `DATABASE_URL` for pooled runtime traffic and `DATABASE_MIGRATION_URL` for direct migration traffic.
-- Never commit credentials; `.env` remains ignored and `.env.example` contains placeholders only.
-- For the initial 50–100 item dataset, keep exact pgvector cosine search available and defer HNSW creation until the embedding model and dimension are fixed.
-- Production packages must not depend on test-only database or HTTP implementations.
-
----
-
-## File Structure
-
-- `AGENTS.md`: repository-wide implementation constraints and phase gates.
-- `cmd/server/main.go`: process entry, signal handling, dependency construction, and Hertz startup.
-- `internal/config/config.go`: environment parsing and validation.
-- `internal/config/config_test.go`: configuration behavior.
-- `internal/platform/postgres/pool.go`: Neon-compatible `pgxpool` construction, pgvector type registration, ping, and close.
-- `internal/platform/postgres/pool_test.go`: invalid configuration and connection-hook tests that do not require external credentials.
-- `internal/agent/graph.go`: typed Eino Graph compilation and invocation.
-- `internal/agent/graph_test.go`: graph compilation, normalization, and validation tests.
-- `internal/http/app.go`: Hertz engine construction and route registration.
-- `internal/http/health.go`: liveness/readiness handlers behind a `HealthChecker` interface.
-- `internal/http/health_test.go`: Hertz route behavior with a fake checker.
-- `migrations/000001_init.up.sql`: enable pgvector and create catalog/chunk schema.
-- `migrations/000001_init.down.sql`: remove Phase One tables without removing the shared extension.
-- `.env.example`: safe local configuration contract.
-- `.gitignore`: prevent credential and build artifacts from being committed.
-- `Makefile`: deterministic format, test, vet, build, and run commands.
-- `README.md`: setup, Neon connection modes, migration, run, and verification instructions.
+- 仅实现后端，不实现 iOS、Android 或替代性的 Web 客户端。
+- 使用 Hertz 替换 Gin，不保留 Gin 兼容层。
+- 所有 Agent 编排均使用 Eino Graph，最小骨架链路也不能绕过 Graph。
+- 运行时数据库流量使用 `DATABASE_URL` 的池化地址；数据库迁移使用 `DATABASE_MIGRATION_URL` 的直连地址。
+- 严禁提交凭据；`.env` 必须被忽略，`.env.example` 只能包含占位值。
+- 初始数据集仅有 50–100 条商品，先保留精确的 pgvector 余弦检索；Embedding 模型和维度确定后再增加 HNSW 索引。
+- 生产代码不能依赖仅供测试使用的数据库或 HTTP 实现。
 
 ---
 
-### Task 1: Repository Contract and Configuration
+## 文件结构
 
-**Files:**
-- Create: `AGENTS.md`
-- Create: `internal/config/config.go`
-- Create: `internal/config/config_test.go`
-- Create: `.env.example`
-- Create: `.gitignore`
-- Modify: `go.mod`
+- `AGENTS.md`：仓库级实施约束和阶段门禁。
+- `cmd/server/main.go`：进程入口、信号处理、依赖装配和 Hertz 启动。
+- `internal/config/config.go`：环境变量解析与校验。
+- `internal/config/config_test.go`：配置行为测试。
+- `internal/platform/postgres/pool.go`：兼容 Neon 的 `pgxpool` 创建、pgvector 类型注册、连通性检查和关闭逻辑。
+- `internal/platform/postgres/pool_test.go`：无需外部凭据的配置错误与连接钩子测试。
+- `internal/agent/graph.go`：Eino Graph 的强类型编译与调用。
+- `internal/agent/graph_test.go`：Graph 编译、输入标准化与校验测试。
+- `internal/http/app.go`：Hertz 引擎构建和路由注册。
+- `internal/http/health.go`：基于 `HealthChecker` 接口的存活与就绪检查。
+- `internal/http/health_test.go`：使用伪造检查器验证 Hertz 路由行为。
+- `migrations/000001_init.up.sql`：启用 pgvector 并创建商品与分块表。
+- `migrations/000001_init.down.sql`：移除第一阶段数据表，但不删除共享扩展。
+- `.env.example`：安全的本地配置契约。
+- `.gitignore`：防止凭据和构建产物进入版本库。
+- `Makefile`：统一格式化、测试、静态检查、构建和启动命令。
+- `README.md`：环境配置、Neon 连接方式、迁移、启动和验证说明。
 
-**Interfaces:**
-- Produces: `config.Config`, `config.Load(getenv func(string) string) (Config, error)`.
-- `Config` contains `Environment string`, `Address string`, `DatabaseURL string`, `DatabaseMigrationURL string`, and `ShutdownTimeout time.Duration`.
+---
 
-- [ ] **Step 1: Write the failing configuration tests**
+### 任务一：仓库契约与配置
+
+**文件：**
+
+- 新建：`AGENTS.md`
+- 新建：`internal/config/config.go`
+- 新建：`internal/config/config_test.go`
+- 新建：`.env.example`
+- 新建：`.gitignore`
+- 修改：`go.mod`
+
+**接口：**
+
+- 产出 `config.Config`。
+- 产出 `config.Load(getenv func(string) string) (Config, error)`。
+- `Config` 包含 `Environment string`、`Address string`、`DatabaseURL string`、`DatabaseMigrationURL string` 和 `ShutdownTimeout time.Duration`。
+
+- [ ] **步骤 1：先编写失败的配置测试**
 
 ```go
 func TestLoadUsesSafeDefaults(t *testing.T) {
@@ -77,13 +80,13 @@ func TestLoadRequiresDatabaseURLs(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **步骤 2：运行聚焦测试并确认红灯**
 
-Run: `go test ./internal/config -run TestLoad -v`
+运行：`go test ./internal/config -run TestLoad -v`
 
-Expected: FAIL because package `internal/config` and `Load` do not exist.
+预期：测试失败，原因是 `internal/config` 包和 `Load` 尚不存在。
 
-- [ ] **Step 3: Implement minimal environment parsing**
+- [ ] **步骤 3：实现最小环境变量解析**
 
 ```go
 type Config struct {
@@ -108,7 +111,7 @@ func Load(getenv func(string) string) (Config, error) {
 }
 ```
 
-Add `.env.example` with only:
+`.env.example` 只能包含以下安全示例：
 
 ```dotenv
 APP_ENV=development
@@ -117,39 +120,41 @@ DATABASE_URL=postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/DATABAS
 DATABASE_MIGRATION_URL=postgresql://USER:PASSWORD@HOST.REGION.aws.neon.tech/DATABASE?sslmode=require
 ```
 
-Create `AGENTS.md` from the approved design at `docs/superpowers/specs/2026-07-22-backend-agents-design.md`, keeping its five phase gates and limiting this increment to the skeleton.
+根据已确认的设计文档 `docs/superpowers/specs/2026-07-22-backend-agents-design.md` 创建 `AGENTS.md`，保留五个阶段门禁，并明确本次增量只实现基础骨架。
 
-Change the module path to `github.com/PolarishT/sales-agent`, retain `go 1.23`, remove Gin, and add the pinned direct dependencies from the global constraints.
+将模块路径改为 `github.com/PolarishT/sales-agent`，保留 `go 1.23`，移除 Gin，并加入全局约束中指定版本的直接依赖。
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [ ] **步骤 4：运行测试并确认绿灯**
 
-Run: `go test ./internal/config -v`
+运行：`go test ./internal/config -v`
 
-Expected: PASS.
+预期：全部通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add AGENTS.md .env.example .gitignore go.mod go.sum internal/config
-git commit -m "chore: establish backend project contract"
+git commit -m "chore: 建立后端项目契约"
 ```
 
 ---
 
-### Task 2: Neon Postgres and pgvector Foundation
+### 任务二：Neon Postgres 与 pgvector 基础设施
 
-**Files:**
-- Create: `internal/platform/postgres/pool.go`
-- Create: `internal/platform/postgres/pool_test.go`
-- Create: `migrations/000001_init.up.sql`
-- Create: `migrations/000001_init.down.sql`
+**文件：**
 
-**Interfaces:**
-- Consumes: `Config.DatabaseURL` for runtime traffic.
-- Produces: `postgres.NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error)`.
-- The returned pool implements `Ping(context.Context) error` and `Close()` for server lifecycle use.
+- 新建：`internal/platform/postgres/pool.go`
+- 新建：`internal/platform/postgres/pool_test.go`
+- 新建：`migrations/000001_init.up.sql`
+- 新建：`migrations/000001_init.down.sql`
 
-- [ ] **Step 1: Write the failing pool configuration tests**
+**接口：**
+
+- 使用 `Config.DatabaseURL` 处理运行时数据库流量。
+- 产出 `postgres.NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error)`。
+- 返回的连接池必须提供 `Ping(context.Context) error` 和 `Close()`，供服务生命周期管理使用。
+
+- [ ] **步骤 1：先编写失败的连接池配置测试**
 
 ```go
 func TestNewPoolRejectsEmptyURL(t *testing.T) {
@@ -165,13 +170,13 @@ func TestParseConfigInstallsVectorRegistration(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **步骤 2：运行聚焦测试并确认红灯**
 
-Run: `go test ./internal/platform/postgres -v`
+运行：`go test ./internal/platform/postgres -v`
 
-Expected: FAIL because `NewPool` and `parseConfig` do not exist.
+预期：测试失败，原因是 `NewPool` 和 `parseConfig` 尚不存在。
 
-- [ ] **Step 3: Implement the pgxpool constructor**
+- [ ] **步骤 3：实现 pgxpool 创建逻辑**
 
 ```go
 func parseConfig(databaseURL string) (*pgxpool.Config, error) {
@@ -196,9 +201,9 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 }
 ```
 
-- [ ] **Step 4: Add reversible schema migrations**
+- [ ] **步骤 4：添加可逆数据库迁移**
 
-`000001_init.up.sql` must contain executable SQL with no template variables:
+`000001_init.up.sql` 使用可直接执行且不含模板变量的 SQL：
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -233,35 +238,38 @@ CREATE INDEX product_chunks_product_id_idx ON product_chunks(product_id);
 CREATE INDEX products_category_idx ON products(category);
 ```
 
-`000001_init.down.sql` must drop `product_chunks` before `products` and must not drop the shared `vector` extension.
+`000001_init.down.sql` 必须先删除 `product_chunks`，再删除 `products`，且不能删除共享的 `vector` 扩展。
 
-- [ ] **Step 5: Run tests and verify GREEN**
+- [ ] **步骤 5：运行测试并确认绿灯**
 
-Run: `go test ./internal/platform/postgres -v`
+运行：`go test ./internal/platform/postgres -v`
 
-Expected: PASS without requiring a live Neon connection.
+预期：无需连接真实 Neon 数据库即可全部通过。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add internal/platform/postgres migrations
-git commit -m "feat: add Neon pgvector foundation"
+git commit -m "feat: 增加 Neon pgvector 基础设施"
 ```
 
 ---
 
-### Task 3: Minimal Eino Graph
+### 任务三：最小 Eino Graph
 
-**Files:**
-- Create: `internal/agent/graph.go`
-- Create: `internal/agent/graph_test.go`
+**文件：**
 
-**Interfaces:**
-- Produces: `agent.Request{Query string}`, `agent.Response{Query string, Stage string}`.
-- Produces: `agent.Runner` interface with `Invoke(context.Context, Request) (Response, error)`.
-- Produces: `agent.NewGraph(ctx context.Context) (Runner, error)`.
+- 新建：`internal/agent/graph.go`
+- 新建：`internal/agent/graph_test.go`
 
-- [ ] **Step 1: Write the failing graph tests**
+**接口：**
+
+- 产出 `agent.Request{Query string}`。
+- 产出 `agent.Response{Query string, Stage string}`。
+- 产出 `agent.Runner` 接口：`Invoke(context.Context, Request) (Response, error)`。
+- 产出 `agent.NewGraph(ctx context.Context) (Runner, error)`。
+
+- [ ] **步骤 1：先编写失败的 Graph 测试**
 
 ```go
 func TestGraphNormalizesQuery(t *testing.T) {
@@ -281,13 +289,13 @@ func TestGraphRejectsEmptyQuery(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **步骤 2：运行聚焦测试并确认红灯**
 
-Run: `go test ./internal/agent -v`
+运行：`go test ./internal/agent -v`
 
-Expected: FAIL because `NewGraph`, `Request`, and `Response` do not exist.
+预期：测试失败，原因是 `NewGraph`、`Request` 和 `Response` 尚不存在。
 
-- [ ] **Step 3: Compile a one-node typed Eino Graph**
+- [ ] **步骤 3：编译单节点强类型 Eino Graph**
 
 ```go
 type Request struct { Query string `json:"query"` }
@@ -308,39 +316,41 @@ func NewGraph(ctx context.Context) (Runner, error) {
 }
 ```
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [ ] **步骤 4：运行测试并确认绿灯**
 
-Run: `go test ./internal/agent -v`
+运行：`go test ./internal/agent -v`
 
-Expected: PASS.
+预期：全部通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add internal/agent
-git commit -m "feat: add Eino graph skeleton"
+git commit -m "feat: 增加 Eino Graph 骨架"
 ```
 
 ---
 
-### Task 4: Hertz Application and Health Contract
+### 任务四：Hertz 应用与健康检查契约
 
-**Files:**
-- Create: `internal/http/health.go`
-- Create: `internal/http/app.go`
-- Create: `internal/http/health_test.go`
-- Create: `cmd/server/main.go`
-- Delete: `main.go`
-- Delete: `public/index.html`
-- Delete: `public/favicon.ico`
+**文件：**
 
-**Interfaces:**
-- Consumes: a database value satisfying `HealthChecker { Ping(context.Context) error }`.
-- Consumes: `agent.Runner` for future `/api/v1/chat/stream` work but does not expose a placeholder chat endpoint.
-- Produces: `http.NewApp(address string, checker HealthChecker) *server.Hertz`.
-- Produces: `GET /api/v1/health/live` and `GET /api/v1/health/ready`.
+- 新建：`internal/http/health.go`
+- 新建：`internal/http/app.go`
+- 新建：`internal/http/health_test.go`
+- 新建：`cmd/server/main.go`
+- 删除：`main.go`
+- 删除：`public/index.html`
+- 删除：`public/favicon.ico`
 
-- [ ] **Step 1: Write the failing handler tests**
+**接口：**
+
+- 接收实现 `HealthChecker { Ping(context.Context) error }` 的数据库对象。
+- 接收 `agent.Runner`，为后续 `/api/v1/chat/stream` 做好装配准备，但本次不暴露空壳聊天接口。
+- 产出 `http.NewApp(address string, checker HealthChecker) *server.Hertz`。
+- 产出 `GET /api/v1/health/live` 和 `GET /api/v1/health/ready`。
+
+- [ ] **步骤 1：先编写失败的 Handler 测试**
 
 ```go
 type fakeChecker struct{ err error }
@@ -359,57 +369,59 @@ func TestReadinessReturnsUnavailableWhenDatabaseFails(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [ ] **步骤 2：运行聚焦测试并确认红灯**
 
-Run: `go test ./internal/http -v`
+运行：`go test ./internal/http -v`
 
-Expected: FAIL because `NewApp` and health handlers do not exist.
+预期：测试失败，原因是 `NewApp` 和健康检查 Handler 尚不存在。
 
-- [ ] **Step 3: Implement versioned health routes**
+- [ ] **步骤 3：实现带版本的健康检查路由**
 
-Use Hertz `server.New(server.WithHostPorts(address))`. Register `/api/v1/health/live` to return `{"status":"ok"}` and `/api/v1/health/ready` to call `checker.Ping` with a two-second timeout. A failed ping returns HTTP 503 with a stable body `{"status":"unavailable","code":"DATABASE_UNAVAILABLE"}`; do not include the raw database error.
+使用 Hertz 的 `server.New(server.WithHostPorts(address))`。`/api/v1/health/live` 返回 `{"status":"ok"}`；`/api/v1/health/ready` 在两秒超时内调用 `checker.Ping`。数据库检查失败时返回 HTTP 503 和稳定响应 `{"status":"unavailable","code":"DATABASE_UNAVAILABLE"}`，不得泄露原始数据库错误。
 
-- [ ] **Step 4: Add process startup and graceful shutdown**
+- [ ] **步骤 4：添加进程启动与优雅关闭**
 
-`cmd/server/main.go` must:
+`cmd/server/main.go` 必须按顺序：
 
-1. load and validate configuration;
-2. create the Neon runtime pool;
-3. ping the pool during startup with a five-second timeout;
-4. compile the Eino Graph so invalid graph configuration fails fast;
-5. construct the Hertz app;
-6. start Hertz and close it on `SIGINT` or `SIGTERM` using the configured shutdown timeout;
-7. close the database pool on exit;
-8. never log a connection string.
+1. 加载并校验配置；
+2. 创建 Neon 运行时连接池；
+3. 使用五秒超时检查数据库连通性；
+4. 编译 Eino Graph，确保错误配置在启动时尽早失败；
+5. 创建 Hertz 应用；
+6. 启动 Hertz，并在收到 `SIGINT` 或 `SIGTERM` 时按配置的超时优雅关闭；
+7. 退出时关闭数据库连接池；
+8. 任何日志均不得包含数据库连接串。
 
-Remove the Gin entry and starter static assets after the Hertz tests pass.
+Hertz 测试通过后，再删除 Gin 入口和模板静态资源。
 
-- [ ] **Step 5: Run tests and verify GREEN**
+- [ ] **步骤 5：运行测试并确认绿灯**
 
-Run: `go test ./internal/http ./cmd/server -v`
+运行：`go test ./internal/http ./cmd/server -v`
 
-Expected: PASS; `cmd/server` may report `[no test files]`.
+预期：全部通过；`cmd/server` 可以显示 `[no test files]`。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add cmd internal/http main.go public
-git commit -m "feat: serve backend skeleton with Hertz"
+git commit -m "feat: 使用 Hertz 提供后端骨架"
 ```
 
 ---
 
-### Task 5: Developer Workflow and Documentation
+### 任务五：开发流程与中文文档
 
-**Files:**
-- Create: `Makefile`
-- Rewrite: `README.md`
+**文件：**
 
-**Interfaces:**
-- Produces: `make fmt`, `make test`, `make vet`, `make build`, and `make run`.
-- Documents: pooled runtime URL, direct migration URL, vector extension, exact-search rationale, and no-secret policy.
+- 新建：`Makefile`
+- 重写：`README.md`
 
-- [ ] **Step 1: Add workflow commands**
+**接口：**
+
+- 提供 `make fmt`、`make test`、`make vet`、`make build` 和 `make run`。
+- 说明运行时池化地址、迁移直连地址、vector 扩展、精确检索的选择以及密钥安全规则。
+
+- [ ] **步骤 1：添加统一开发命令**
 
 ```make
 .PHONY: fmt test vet build run
@@ -430,23 +442,23 @@ run:
 	go run ./cmd/server
 ```
 
-- [ ] **Step 2: Rewrite README for the new skeleton**
+- [ ] **步骤 2：用中文重写 README**
 
-Document:
+README 必须说明：
 
-- architecture and directory map;
-- Go 1.23+ prerequisite;
-- `cp .env.example .env` without showing real credentials;
-- Neon pooled URL for runtime and direct URL for migrations;
-- applying `migrations/000001_init.up.sql` with `psql "$DATABASE_MIGRATION_URL" -f ...`;
-- `make run`, liveness, and readiness URLs;
-- the Eino Graph skeleton behavior;
-- why exact cosine search is retained for 50–100 records and HNSW is deferred until embedding dimensions are fixed;
-- verification commands and the next Phase One increment.
+- 架构与目录职责；
+- Go 1.23+ 前置条件；
+- 使用 `cp .env.example .env` 创建本地配置，且不得展示真实凭据；
+- Neon 池化地址用于运行时，直连地址用于迁移；
+- 使用 `psql "$DATABASE_MIGRATION_URL" -f migrations/000001_init.up.sql` 执行迁移；
+- `make run`、存活检查和就绪检查地址；
+- Eino Graph 骨架行为；
+- 50–100 条数据先采用精确余弦检索，Embedding 维度确定后再添加 HNSW 的原因；
+- 验证命令与第一阶段的下一个增量。
 
-- [ ] **Step 3: Run full verification**
+- [ ] **步骤 3：运行完整验证**
 
-Run:
+运行：
 
 ```bash
 make fmt
@@ -456,31 +468,31 @@ make vet
 make build
 ```
 
-Expected: every command exits 0 and the repository contains no generated `server` binary.
+预期：所有命令退出码均为 0，仓库中不留下生成的 `server` 二进制文件。
 
-- [ ] **Step 4: Scan for secrets and stale Gin references**
+- [ ] **步骤 4：扫描密钥与遗留 Gin 内容**
 
-Run:
+运行：
 
 ```bash
 rg -n 'ark-[A-Za-z0-9-]+|postgres(ql)?://[^[:space:]]+:[^[:space:]]+@' --glob '!go.sum' --glob '!.env.example' .
 rg -n 'gin-gonic|gin\.Context|Vercel \+ Gin' .
 ```
 
-Expected: both commands return no matches.
+预期：两个命令均无匹配结果。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add Makefile README.md
-git commit -m "docs: explain backend skeleton workflow"
+git commit -m "docs: 说明后端骨架开发流程"
 ```
 
 ---
 
-## Plan Self-Review
+## 计划自检
 
-- Spec coverage: the plan covers Hertz replacement, Eino Graph compilation, Neon runtime connectivity, pgvector schema, versioned health endpoints, safe configuration, phase instructions, tests, and documentation.
-- Deliberate deferrals: no LLM, embedding provider, product ingestion, retrieval repository, SSE chat endpoint, or HNSW index is implemented in this skeleton increment.
-- Type consistency: `HealthChecker.Ping`, `agent.Runner.Invoke`, `config.Config`, and `postgres.NewPool` signatures are consistent across producers and consumers.
-- Security: no real database URL, password, API key, model ID, or document credential appears in the plan.
+- 需求覆盖：计划包含 Hertz 替换、Eino Graph 编译、Neon 运行时连接、pgvector 表结构、版本化健康检查、安全配置、阶段指令、测试和文档。
+- 明确延期：本次骨架不实现 LLM、Embedding 服务、商品导入、检索仓储、SSE 对话接口或 HNSW 索引。
+- 类型一致性：`HealthChecker.Ping`、`agent.Runner.Invoke`、`config.Config` 和 `postgres.NewPool` 在生产者与消费者之间保持一致。
+- 安全性：计划中不包含真实数据库地址、密码、API Key、模型 ID 或需求文档中的凭据。
