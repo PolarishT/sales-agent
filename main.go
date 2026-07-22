@@ -12,11 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/PolarishT/sales-agent/ent"
 	"github.com/PolarishT/sales-agent/internal/agent"
 	"github.com/PolarishT/sales-agent/internal/config"
 	httpapi "github.com/PolarishT/sales-agent/internal/http"
-	postgresplatform "github.com/PolarishT/sales-agent/internal/platform/postgres"
+	databaseplatform "github.com/PolarishT/sales-agent/internal/platform/database"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -33,15 +35,11 @@ func run() error {
 	}
 	configureLogger(settings.LogLevel)
 
-	pool, err := postgresplatform.NewPool(context.Background(), settings.DatabaseURL, postgresplatform.Options{
-		MaxConns:        settings.DatabaseMaxConns,
-		MinConns:        settings.DatabaseMinConns,
-		MaxConnIdleTime: settings.DatabaseMaxConnIdleTime,
-	})
+	client, err := ent.Open("postgres", settings.DatabaseURL)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开 PostgreSQL Ent 客户端: %w", err)
 	}
-	defer pool.Close()
+	defer client.Close()
 
 	graph, err := agent.NewGraph(context.Background())
 	if err != nil {
@@ -60,7 +58,7 @@ func run() error {
 		ShutdownTimeout: settings.ShutdownTimeout,
 		Listener:        listener,
 		Dependencies: httpapi.Dependencies{
-			HealthChecker:    pool,
+			HealthChecker:    databaseplatform.NewReadiness(client),
 			AgentRunner:      graph,
 			ReadinessTimeout: settings.DatabaseConnectTimeout,
 		},

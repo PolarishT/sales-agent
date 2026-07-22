@@ -9,33 +9,27 @@ import (
 )
 
 const (
-	defaultAddress                = ":3000"
-	defaultEnvironment            = "development"
-	defaultDatabaseMaxConns int32 = 4
-	defaultDatabaseMinConns int32 = 0
-	defaultLogLevel               = "info"
+	defaultAddress     = ":3000"
+	defaultEnvironment = "development"
+	defaultLogLevel    = "info"
 )
 
 var (
-	defaultDatabaseMaxConnIdleTime = 30 * time.Second
-	defaultDatabaseConnectTimeout  = 5 * time.Second
-	defaultRequestTimeout          = 30 * time.Second
-	defaultGraphTimeout            = 60 * time.Second
-	defaultShutdownTimeout         = 10 * time.Second
+	defaultDatabaseConnectTimeout = 5 * time.Second
+	defaultRequestTimeout         = 30 * time.Second
+	defaultGraphTimeout           = 60 * time.Second
+	defaultShutdownTimeout        = 10 * time.Second
 )
 
 type Config struct {
-	Environment             string
-	Address                 string
-	DatabaseURL             string
-	DatabaseMaxConns        int32
-	DatabaseMinConns        int32
-	DatabaseMaxConnIdleTime time.Duration
-	DatabaseConnectTimeout  time.Duration
-	RequestTimeout          time.Duration
-	GraphTimeout            time.Duration
-	ShutdownTimeout         time.Duration
-	LogLevel                string
+	Environment            string
+	Address                string
+	DatabaseURL            string
+	DatabaseConnectTimeout time.Duration
+	RequestTimeout         time.Duration
+	GraphTimeout           time.Duration
+	ShutdownTimeout        time.Duration
+	LogLevel               string
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -46,21 +40,6 @@ func Load(getenv func(string) string) (Config, error) {
 	address, err := loadAddress(getenv)
 	if err != nil {
 		return Config{}, err
-	}
-	maxConns, err := positiveInt32Value(getenv("DB_MAX_CONNS"), defaultDatabaseMaxConns)
-	if err != nil {
-		return Config{}, fmt.Errorf("DB_MAX_CONNS 配置错误: %w", err)
-	}
-	minConns, err := nonNegativeInt32Value(getenv("DB_MIN_CONNS"), defaultDatabaseMinConns)
-	if err != nil {
-		return Config{}, fmt.Errorf("DB_MIN_CONNS 配置错误: %w", err)
-	}
-	if minConns > maxConns {
-		return Config{}, errors.New("DB_MIN_CONNS 不能大于 DB_MAX_CONNS")
-	}
-	idleTime, err := durationValue(getenv("DB_MAX_CONN_IDLE_TIME"), defaultDatabaseMaxConnIdleTime)
-	if err != nil {
-		return Config{}, fmt.Errorf("DB_MAX_CONN_IDLE_TIME 配置错误: %w", err)
 	}
 	connectTimeout, err := durationValue(getenv("DB_CONNECT_TIMEOUT"), defaultDatabaseConnectTimeout)
 	if err != nil {
@@ -84,7 +63,6 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	return Config{
 		Environment: environment, Address: address, DatabaseURL: databaseURL,
-		DatabaseMaxConns: maxConns, DatabaseMinConns: minConns, DatabaseMaxConnIdleTime: idleTime,
 		DatabaseConnectTimeout: connectTimeout, RequestTimeout: requestTimeout,
 		GraphTimeout: graphTimeout, ShutdownTimeout: shutdownTimeout,
 		LogLevel: valueOr(getenv("LOG_LEVEL"), defaultLogLevel),
@@ -100,39 +78,6 @@ func loadAddress(getenv func(string) string) (string, error) {
 		return ":" + port, nil
 	}
 	return valueOr(getenv("HTTP_ADDR"), defaultAddress), nil
-}
-
-func positiveInt32Value(raw string, fallback int32) (int32, error) {
-	value, err := int32Value(raw, fallback)
-	if err != nil {
-		return 0, err
-	}
-	if value <= 0 {
-		return 0, errors.New("必须是正整数")
-	}
-	return value, nil
-}
-
-func nonNegativeInt32Value(raw string, fallback int32) (int32, error) {
-	value, err := int32Value(raw, fallback)
-	if err != nil {
-		return 0, err
-	}
-	if value < 0 {
-		return 0, errors.New("必须是非负整数")
-	}
-	return value, nil
-}
-
-func int32Value(raw string, fallback int32) (int32, error) {
-	if strings.TrimSpace(raw) == "" {
-		return fallback, nil
-	}
-	value, err := strconv.ParseInt(raw, 10, 32)
-	if err != nil {
-		return 0, errors.New("必须是整数")
-	}
-	return int32(value), nil
 }
 
 func durationValue(raw string, fallback time.Duration) (time.Duration, error) {

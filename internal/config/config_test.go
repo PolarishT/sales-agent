@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -14,12 +15,6 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	}
 	if cfg.Address != ":3000" || cfg.Environment != "development" {
 		t.Fatalf("Address/Environment = %q/%q", cfg.Address, cfg.Environment)
-	}
-	if cfg.DatabaseMaxConns != 4 || cfg.DatabaseMinConns != 0 {
-		t.Fatalf("connection limits = %d/%d", cfg.DatabaseMaxConns, cfg.DatabaseMinConns)
-	}
-	if cfg.DatabaseMaxConnIdleTime != 30*time.Second {
-		t.Fatalf("DatabaseMaxConnIdleTime = %s, want 30s", cfg.DatabaseMaxConnIdleTime)
 	}
 }
 
@@ -63,14 +58,13 @@ func TestLoadOnlyRequiresRuntimeDatabaseURL(t *testing.T) {
 func TestLoadParsesRuntimeTuning(t *testing.T) {
 	t.Parallel()
 	cfg, err := Load(mapGetenv(map[string]string{
-		"DATABASE_URL": "postgres://runtime", "DB_MAX_CONNS": "8", "DB_MIN_CONNS": "1",
-		"DB_MAX_CONN_IDLE_TIME": "45s", "DB_CONNECT_TIMEOUT": "7s", "REQUEST_TIMEOUT": "40s",
+		"DATABASE_URL": "postgres://runtime", "DB_CONNECT_TIMEOUT": "7s", "REQUEST_TIMEOUT": "40s",
 		"GRAPH_TIMEOUT": "75s", "SHUTDOWN_TIMEOUT": "12s", "LOG_LEVEL": "debug",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DatabaseMaxConns != 8 || cfg.DatabaseMinConns != 1 || cfg.DatabaseConnectTimeout != 7*time.Second {
+	if cfg.DatabaseConnectTimeout != 7*time.Second {
 		t.Fatalf("unexpected runtime tuning: %+v", cfg)
 	}
 	if cfg.RequestTimeout != 40*time.Second || cfg.GraphTimeout != 75*time.Second || cfg.LogLevel != "debug" {
@@ -85,8 +79,6 @@ func TestLoadRejectsInvalidRuntimeTuning(t *testing.T) {
 		values map[string]string
 		want   string
 	}{
-		{name: "negative max connections", values: map[string]string{"DB_MAX_CONNS": "-1"}, want: "DB_MAX_CONNS"},
-		{name: "minimum exceeds maximum", values: map[string]string{"DB_MAX_CONNS": "2", "DB_MIN_CONNS": "3"}, want: "DB_MIN_CONNS"},
 		{name: "invalid duration", values: map[string]string{"GRAPH_TIMEOUT": "soon"}, want: "GRAPH_TIMEOUT"},
 	}
 	for _, tc := range tests {
@@ -97,6 +89,28 @@ func TestLoadRejectsInvalidRuntimeTuning(t *testing.T) {
 				t.Fatalf("Load() error = %v, want error containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadIgnoresRemovedPoolTuning(t *testing.T) {
+	t.Parallel()
+	cfg, err := Load(mapGetenv(map[string]string{
+		"DATABASE_URL":          "postgres://runtime",
+		"DB_MAX_CONNS":          "invalid",
+		"DB_MIN_CONNS":          "invalid",
+		"DB_MAX_CONN_IDLE_TIME": "invalid",
+		"DB_CONNECT_TIMEOUT":    "7s",
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DatabaseConnectTimeout != 7*time.Second {
+		t.Fatalf("DatabaseConnectTimeout = %s, want 7s", cfg.DatabaseConnectTimeout)
+	}
+	for _, name := range []string{"DatabaseMaxConns", "DatabaseMinConns", "DatabaseMaxConnIdleTime"} {
+		if _, ok := reflect.TypeOf(cfg).FieldByName(name); ok {
+			t.Fatalf("Config still exposes removed field %s", name)
+		}
 	}
 }
 
