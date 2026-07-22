@@ -5,39 +5,31 @@ package health
 import (
 	"context"
 
-	health "github.com/PolarishT/sales-agent/biz/model/health"
+	healthmodel "github.com/PolarishT/sales-agent/biz/model/health"
+	httpapi "github.com/PolarishT/sales-agent/internal/http"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 )
 
-// Live .
-// @router /api/v1/health/live [GET]
-func Live(ctx context.Context, c *app.RequestContext) {
-	var err error
-	var req health.HealthRequest
-	err = c.BindAndValidate(&req)
-	if err != nil {
-		c.String(consts.StatusBadRequest, err.Error())
-		return
-	}
-
-	resp := new(health.HealthResponse)
-
-	c.JSON(consts.StatusOK, resp)
+// Live reports whether the process can serve HTTP requests.
+func Live(_ context.Context, ctx *app.RequestContext) {
+	ctx.JSON(consts.StatusOK, &healthmodel.HealthResponse{Status: "ok", Code: "LIVE"})
 }
 
-// Ready .
-// @router /api/v1/health/ready [GET]
-func Ready(ctx context.Context, c *app.RequestContext) {
-	var err error
-	var req health.HealthRequest
-	err = c.BindAndValidate(&req)
-	if err != nil {
-		c.String(consts.StatusBadRequest, err.Error())
+// Ready reports whether the runtime database dependency is reachable.
+func Ready(ctx context.Context, requestContext *app.RequestContext) {
+	dependencies, ok := httpapi.DependenciesFrom(requestContext)
+	if !ok || dependencies.HealthChecker == nil {
+		httpapi.WriteError(requestContext, consts.StatusServiceUnavailable, "unavailable", "DATABASE_UNAVAILABLE", "数据库暂不可用")
 		return
 	}
 
-	resp := new(health.HealthResponse)
+	checkContext, cancel := context.WithTimeout(ctx, dependencies.ReadinessTimeout)
+	defer cancel()
+	if err := dependencies.HealthChecker.Ping(checkContext); err != nil {
+		httpapi.WriteError(requestContext, consts.StatusServiceUnavailable, "unavailable", "DATABASE_UNAVAILABLE", "数据库暂不可用")
+		return
+	}
 
-	c.JSON(consts.StatusOK, resp)
+	requestContext.JSON(consts.StatusOK, &healthmodel.HealthResponse{Status: "ok", Code: "READY"})
 }
