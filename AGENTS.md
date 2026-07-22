@@ -13,7 +13,7 @@
 - hz v0.9.7 默认脚手架与 Thrift IDL 契约；
 - Hertz 服务入口与健康检查；
 - Eino Graph 最小可运行编排；
-- Neon `pgxpool` 与 pgvector 类型注册；
+- Ent `RagUser` Schema、生成客户端与 Neon 就绪检查；
 - Vercel 与本地开发配置；
 - 测试、构建和中文文档。
 
@@ -44,8 +44,10 @@
 - `internal/cart`、`internal/order`：交易领域逻辑。
 - `internal/multimodal`：VLM、ASR、TTS 适配器。
 - `internal/platform`：数据库、向量库、模型客户端、缓存、日志和指标。
+- `ent/schema`：既有 PostgreSQL 业务表的 Ent Schema 唯一来源。
+- `ent` 中除 `schema` 和 `generate.go` 外的 Go 文件：Ent 生成物，禁止手工修改。
 
-首次创建项目使用 `hz new`；后续 IDL 变化使用 `hz update`。项目采用 hz 默认布局，不维护自定义 layout 或生成目录。Handler 不直接访问数据库或模型；领域与 Agent 代码不得依赖 Hertz 类型。
+首次创建项目使用 `hz new`；后续 IDL 变化使用 `hz update`。Ent Schema 变化使用 `go generate ./ent`。项目采用 hz 默认布局，不维护自定义 layout 或 hz 生成目录。Handler 不直接访问数据库或模型；领域与 Agent 代码不得依赖 Hertz 类型。
 
 ## Hertz 与 API 规则
 
@@ -65,10 +67,11 @@
 
 ## Neon 与数据规则
 
-- Go 数据库驱动使用 `pgx/v5`，向量类型使用 `pgvector-go`。
+- ORM 使用 Ent，PostgreSQL 驱动使用 Ent 入门教程对应的 `lib/pq`。
 - Vercel 运行时使用 `DATABASE_URL` 的 Neon 池化地址。
-- 数据库、pgvector 扩展和业务表由仓库外的受控流程预先准备，本仓库不执行迁移。
-- 每个进程只创建一个受限的 `pgxpool`，禁止每请求新建连接池。
+- `DATABASE_URL` 保留 `sslmode=require`，且不得包含 `lib/pq` 尚不支持的 `channel_binding=require`。
+- 数据库扩展和业务表由仓库外的受控流程预先准备，本仓库不执行迁移，也不调用 `client.Schema.Create`。
+- 每个进程只创建一个 Ent Client，禁止每请求创建客户端。
 - SQL 必须参数化，禁止拼接用户输入。
 - 商品价格、库存、优惠和能力只能来自结构化权威数据。
 - 向量检索结果只是候选，输出前必须经过事实校验。

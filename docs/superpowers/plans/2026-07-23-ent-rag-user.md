@@ -4,7 +4,7 @@
 
 **Goal:** 删除自定义 `pgxpool` 基础设施，按 Ent 官方快速入门生成 `RagUser` 模型，并由根入口使用 `DATABASE_URL` 打开 PostgreSQL Ent Client。
 
-**Architecture:** `ent/schema/rag_user.go` 是既有 `rag_users` 表的强类型映射，生成的 `ent.Client` 由 `main.go` 创建并在进程退出时关闭。HTTP readiness 通过一个小型适配器执行 `RagUser.Query().Exist(ctx)`，Handler 继续只依赖 `Ping(context.Context) error` 接口。
+**Architecture:** `ent/schema/raguser.go` 是既有 `rag_users` 表的强类型映射，生成的 `ent.Client` 由 `main.go` 创建并在进程退出时关闭。HTTP readiness 通过一个小型适配器执行 `RagUser.Query().Exist(ctx)`，Handler 继续只依赖 `Ping(context.Context) error` 接口。
 
 **Tech Stack:** Go 1.25.5、Ent v0.14.6、lib/pq v1.12.3、PostgreSQL/Neon、Hertz v0.10.5、Eino v0.9.12。
 
@@ -23,7 +23,7 @@
 
 ## File Map
 
-- Create `ent/schema/rag_user.go`: `rag_users` 表的唯一 Ent Schema 源。
+- Create `ent/schema/raguser.go`: `rag_users` 表的唯一 Ent Schema 源。
 - Create `ent/schema/rag_user_test.go`: 验证表名和五个字段的数据库映射。
 - Generate `ent/*.go`, `ent/raguser/*.go`, `ent/migrate/*.go`: Ent CLI 生成物，禁止手工修改。
 - Create `internal/platform/database/readiness.go`: 将 Ent 查询适配为现有健康检查接口。
@@ -42,7 +42,7 @@
 
 **Files:**
 - Create: `ent/schema/rag_user_test.go`
-- Create with Ent CLI, then modify: `ent/schema/rag_user.go`
+- Create with Ent CLI, then modify: `ent/schema/raguser.go`
 - Generate: `ent/*.go`, `ent/raguser/*.go`, `ent/migrate/*.go`
 - Modify: `go.mod`
 - Modify: `go.sum`
@@ -143,7 +143,7 @@ Expected: Ent creates `ent/schema/rag_user.go` and `ent/generate.go`.
 
 - [ ] **Step 5: Implement the exact existing-table mapping**
 
-Replace `ent/schema/rag_user.go` with:
+Replace `ent/schema/raguser.go` with:
 
 ```go
 package schema

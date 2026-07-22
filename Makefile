@@ -5,6 +5,7 @@ GO_FILES := $(shell find . -type f -name '*.go' -not -path './vendor/*')
 
 generate:
 	$(HZ) update --idl idl/health.thrift --sort_router
+	go generate ./ent
 
 fmt:
 	gofmt -w $(GO_FILES)

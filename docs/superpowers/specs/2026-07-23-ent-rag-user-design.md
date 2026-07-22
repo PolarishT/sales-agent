@@ -8,7 +8,7 @@
 
 ## Ent Schema
 
-使用 Ent CLI 创建 `RagUser` Schema，并由 `go generate ./ent` 生成客户端代码。通过表注解将实体明确映射到 `rag_users`，避免依赖默认复数命名行为。
+使用 Ent CLI 创建 `ent/schema/raguser.go` 中的 `RagUser` Schema，并由 `go generate ./ent` 生成客户端代码。通过表注解将实体明确映射到 `rag_users`，避免依赖默认复数命名行为。
 
 字段映射如下：
 
