@@ -2,11 +2,13 @@ package ingestion
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/PolarishT/sales-agent/internal/rag/domain"
 	"github.com/google/uuid"
 )
 
@@ -194,6 +196,44 @@ func TestShutdownDeadlineCancelsUncommittedReservation(t *testing.T) {
 	reservation.Commit(uuid.New())
 }
 
+func TestShutdownDeadlinePersistsInterruptedForRunningAndQueuedJobs(t *testing.T) {
+	repository := &contextRespectingFailureRepository{
+		fakeRepository: &fakeRepository{getTask: domain.Task{Stage: domain.StageEmbedding}},
+	}
+	runnerStarted := make(chan struct{})
+	executor := mustStartedExecutor(t, 1, 1, &recordingRunner{
+		run: func(ctx context.Context, _ uuid.UUID) error {
+			close(runnerStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}, repository)
+
+	for index := 0; index < 2; index++ {
+		reservation, ok := executor.TryReserve()
+		if !ok || !reservation.Commit(uuid.New()) {
+			t.Fatalf("failed to schedule job %d", index)
+		}
+	}
+	<-runnerStarted
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := executor.Shutdown(shutdownCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	_, failures := repository.snapshot()
+	if len(failures) != 2 {
+		t.Fatalf("persisted failures = %#v, want running and queued failures", failures)
+	}
+	for _, failure := range failures {
+		if failure.failure.Code != domain.CodeProcessInterrupted {
+			t.Fatalf("failure = %#v, want %s", failure, domain.CodeProcessInterrupted)
+		}
+	}
+}
+
 func TestStartAndShutdownAreRaceSafeAndShutdownRejectsNewReservations(t *testing.T) {
 	for iteration := 0; iteration < 50; iteration++ {
 		executor, err := NewExecutor(1, 1, time.Second, &recordingRunner{}, &fakeRepository{})
@@ -218,6 +258,32 @@ func TestStartAndShutdownAreRaceSafeAndShutdownRejectsNewReservations(t *testing
 			t.Fatal("executor accepted after shutdown")
 		}
 	}
+}
+
+type contextRespectingFailureRepository struct {
+	*fakeRepository
+}
+
+func (r *contextRespectingFailureRepository) GetTask(
+	ctx context.Context,
+	ingestionID uuid.UUID,
+) (domain.Task, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.Task{}, err
+	}
+	return r.fakeRepository.GetTask(ctx, ingestionID)
+}
+
+func (r *contextRespectingFailureRepository) MarkFailed(
+	ctx context.Context,
+	ingestionID uuid.UUID,
+	stage domain.Stage,
+	failure domain.Failure,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return r.fakeRepository.MarkFailed(ctx, ingestionID, stage, failure)
 }
 
 func mustStartedExecutor(

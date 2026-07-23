@@ -21,19 +21,24 @@ type Executor struct {
 	taskTimeout time.Duration
 	workers     int
 
-	mu         sync.RWMutex
-	started    bool
-	stopping   bool
-	aborted    bool
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	workerDone chan struct{}
-	pending    map[*Reservation]struct{}
-	scheduled  map[uuid.UUID]struct{}
-	active     int
-	idle       chan struct{}
+	mu            sync.RWMutex
+	started       bool
+	stopping      bool
+	aborted       bool
+	ctx           context.Context
+	cancel        context.CancelFunc
+	cleanupCtx    context.Context
+	cancelCleanup context.CancelFunc
+	cleanupGrace  time.Duration
+	wg            sync.WaitGroup
+	workerDone    chan struct{}
+	pending       map[*Reservation]struct{}
+	scheduled     map[uuid.UUID]struct{}
+	active        int
+	idle          chan struct{}
 }
+
+const defaultCleanupGrace = 500 * time.Millisecond
 
 type Reservation struct {
 	once     sync.Once
@@ -76,16 +81,17 @@ func NewExecutor(
 	idle := make(chan struct{})
 	close(idle)
 	return &Executor{
-		jobs:        make(chan uuid.UUID, totalCapacity),
-		slots:       make(chan struct{}, totalCapacity),
-		runner:      runner,
-		repository:  repository,
-		taskTimeout: taskTimeout,
-		workers:     workers,
-		workerDone:  make(chan struct{}),
-		pending:     make(map[*Reservation]struct{}),
-		scheduled:   make(map[uuid.UUID]struct{}),
-		idle:        idle,
+		jobs:         make(chan uuid.UUID, totalCapacity),
+		slots:        make(chan struct{}, totalCapacity),
+		runner:       runner,
+		repository:   repository,
+		taskTimeout:  taskTimeout,
+		workers:      workers,
+		cleanupGrace: defaultCleanupGrace,
+		workerDone:   make(chan struct{}),
+		pending:      make(map[*Reservation]struct{}),
+		scheduled:    make(map[uuid.UUID]struct{}),
+		idle:         idle,
 	}, nil
 }
 
@@ -96,6 +102,7 @@ func (e *Executor) Start(ctx context.Context) {
 		return
 	}
 	e.ctx, e.cancel = context.WithCancel(ctx)
+	e.cleanupCtx, e.cancelCleanup = context.WithCancel(context.WithoutCancel(ctx))
 	e.started = true
 	e.wg.Add(e.workers)
 	for index := 0; index < e.workers; index++ {
@@ -198,19 +205,32 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		shutdownErr := ctx.Err()
 		e.abort()
-		<-workerDone
+		e.waitForCleanup(workerDone)
 		return shutdownErr
 	}
 
 	select {
 	case <-workerDone:
+		e.cancelCleanup()
 		return nil
 	case <-ctx.Done():
 		shutdownErr := ctx.Err()
 		e.abort()
-		<-workerDone
+		e.waitForCleanup(workerDone)
 		return shutdownErr
 	}
+}
+
+func (e *Executor) waitForCleanup(workerDone <-chan struct{}) {
+	timer := time.NewTimer(e.cleanupGrace)
+	defer timer.Stop()
+	select {
+	case <-workerDone:
+	case <-timer.C:
+		e.cancelCleanup()
+		<-workerDone
+	}
+	e.cancelCleanup()
 }
 
 func (e *Executor) commit(reservation *Reservation, ingestionID uuid.UUID) bool {

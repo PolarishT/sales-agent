@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/PolarishT/sales-agent/internal/rag/domain"
+	ragsplitter "github.com/PolarishT/sales-agent/internal/rag/splitter"
 	"github.com/google/uuid"
 )
 
@@ -13,6 +14,7 @@ const (
 	defaultChunkSize      = 512
 	defaultChunkOverlap   = 64
 	embeddingVectorLength = 1024
+	maxEmbeddingTokens    = 3072
 )
 
 type Pipeline struct {
@@ -126,6 +128,9 @@ func (p *Pipeline) Run(ctx context.Context, ingestionID uuid.UUID) error {
 			domain.NewError(domain.CodeDocumentSplitFailed, "文档切分失败", nil),
 		)
 	}
+	if err := validateEmbeddingContents(chunks); err != nil {
+		return atStage(currentStage, err)
+	}
 	if err := p.repository.UpdateProgress(ctx, ingestionID, len(chunks), 0); err != nil {
 		return atStage(
 			currentStage,
@@ -174,6 +179,20 @@ func (p *Pipeline) Run(ctx context.Context, ingestionID uuid.UUID) error {
 			currentStage,
 			stableOr(err, domain.CodeDocumentStoreFailed, "保存导入文档失败"),
 		)
+	}
+	return nil
+}
+
+func validateEmbeddingContents(chunks []domain.Chunk) error {
+	estimator := ragsplitter.ConservativeEstimator{}
+	for _, chunk := range chunks {
+		if estimator.Estimate(chunk.EmbeddingContent) > maxEmbeddingTokens {
+			return domain.NewError(
+				domain.CodeDocumentSplitFailed,
+				"文档切分失败",
+				nil,
+			)
+		}
 	}
 	return nil
 }

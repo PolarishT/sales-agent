@@ -161,7 +161,7 @@ func (e *Executor) persistFailureAttempt(
 	failure domain.Failure,
 ) (task domain.Task, err error) {
 	ctx, cancel := context.WithTimeout(
-		e.ctx,
+		e.cleanupCtx,
 		failurePersistenceAttemptTimeout,
 	)
 	defer cancel()

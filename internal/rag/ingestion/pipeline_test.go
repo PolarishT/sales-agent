@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/PolarishT/sales-agent/internal/rag/domain"
+	ragsplitter "github.com/PolarishT/sales-agent/internal/rag/splitter"
 	"github.com/google/uuid"
 )
 
@@ -187,6 +188,83 @@ func TestPipelinePreservesStableErrors(t *testing.T) {
 	err := pipeline.Run(context.Background(), uuid.New())
 	if !domain.IsCode(err, domain.CodeInvalidEmbeddingResponse) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestPipelineRejectsEmbeddingContentOverProviderLimitBeforeHTTP(t *testing.T) {
+	tests := []struct {
+		name     string
+		document domain.NormalizedDocument
+	}{
+		{
+			name: "oversized heading",
+			document: domain.NormalizedDocument{Blocks: []domain.MarkdownBlock{{
+				Type:        domain.BlockParagraph,
+				HeadingPath: []string{strings.Repeat("标题", 1500)},
+				Content:     "短正文",
+				StartLine:   2,
+				EndLine:     2,
+			}}},
+		},
+		{
+			name: "oversized table row",
+			document: domain.NormalizedDocument{Blocks: []domain.MarkdownBlock{{
+				Type:      domain.BlockTable,
+				Content:   "| 名称 | 值 |\n| --- | --- |\n| 商品 | " + strings.Repeat("表", 3000) + " |",
+				StartLine: 1,
+				EndLine:   3,
+			}}},
+		},
+		{
+			name: "oversized list item",
+			document: domain.NormalizedDocument{Blocks: []domain.MarkdownBlock{{
+				Type:      domain.BlockList,
+				Content:   "- " + strings.Repeat("列", 3000),
+				StartLine: 1,
+				EndLine:   1,
+			}}},
+		},
+		{
+			name: "oversized code line",
+			document: domain.NormalizedDocument{Blocks: []domain.MarkdownBlock{{
+				Type:       domain.BlockCode,
+				RawContent: "```\n" + strings.Repeat("码", 3000) + "\n```",
+				Content:    strings.Repeat("码", 3000),
+				StartLine:  1,
+				EndLine:    3,
+			}}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &fakeRepository{source: domain.Upload{Markdown: []byte("content")}}
+			embedder := &fakeEmbedder{repository: repository}
+			pipeline := mustPipeline(
+				t,
+				repository,
+				&fakeParser{repository: repository},
+				&fakeFilter{repository: repository},
+				&fakeNormalizer{repository: repository, document: test.document},
+				ragsplitter.New(),
+				embedder,
+			)
+
+			err := pipeline.Run(context.Background(), uuid.New())
+			if !domain.IsCode(err, domain.CodeDocumentSplitFailed) {
+				t.Fatalf("error = %v, want %s", err, domain.CodeDocumentSplitFailed)
+			}
+			if got := stageFromError(err); got != domain.StageChunking {
+				t.Fatalf("failure stage = %s, want %s", got, domain.StageChunking)
+			}
+			if len(embedder.inputs) != 0 {
+				t.Fatalf("embedder called with %d inputs", len(embedder.inputs))
+			}
+			events, _ := repository.snapshot()
+			if slicesContain(events, "stage:EMBEDDING") || slicesContain(events, "embed") {
+				t.Fatalf("pipeline entered embedding stage: %#v", events)
+			}
+		})
 	}
 }
 

@@ -271,6 +271,7 @@ func TestShutdownDeadlineCancelsPersistenceAndWaitsForWorkerExit(t *testing.T) {
 			return ctx.Err()
 		},
 	}, repository)
+	executor.cleanupGrace = 20 * time.Millisecond
 	reservation, ok := executor.TryReserve()
 	if !ok || !reservation.Commit(ingestionID) {
 		t.Fatal("failed to schedule task")

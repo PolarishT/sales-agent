@@ -153,7 +153,10 @@ func GetIngestion(ctx context.Context, requestContext *app.RequestContext) {
 }
 
 func hasExactlyOneUpload(form *multipart.Form) bool {
-	return form != nil && len(form.File) == 1 && len(form.File["file"]) == 1
+	return form != nil &&
+		len(form.File) == 1 &&
+		len(form.File["file"]) == 1 &&
+		len(form.Value["file"]) == 0
 }
 
 func writeInvalidIngestionID(requestContext *app.RequestContext) {

@@ -72,7 +72,7 @@ func TestSplitterPacksBlocksAndEndsChunkOnHeadingChange(t *testing.T) {
 		},
 	}}
 
-	config := domain.ChunkConfig{ChunkSize: 8, ChunkOverlap: 2}
+	config := domain.ChunkConfig{ChunkSize: 16, ChunkOverlap: 2}
 	chunks, err := New().Split(context.Background(), document, config)
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +113,36 @@ func TestSplitterPacksBlocksAndEndsChunkOnHeadingChange(t *testing.T) {
 	}
 }
 
+func TestSplitterIncludesHeadingContextInChunkBudget(t *testing.T) {
+	const chunkSize = 512
+	document := domain.NormalizedDocument{Blocks: []domain.MarkdownBlock{{
+		Type:        domain.BlockParagraph,
+		HeadingPath: []string{strings.Repeat("标题", 100)},
+		Content:     strings.Repeat("正文", 150),
+		StartLine:   2,
+		EndLine:     2,
+	}}}
+
+	chunks, err := New().Split(context.Background(), document, domain.ChunkConfig{
+		ChunkSize:    chunkSize,
+		ChunkOverlap: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("chunks = %d, want heading-aware split", len(chunks))
+	}
+	for _, chunk := range chunks {
+		if chunk.EstimatedTokens != (ConservativeEstimator{}).Estimate(chunk.EmbeddingContent) {
+			t.Fatalf("estimated tokens = %d for %q", chunk.EstimatedTokens, chunk.EmbeddingContent)
+		}
+		if chunk.EstimatedTokens > chunkSize {
+			t.Fatalf("embedding estimate = %d, want <= %d", chunk.EstimatedTokens, chunkSize)
+		}
+	}
+}
+
 func TestSplitterPrependsCompleteSemanticOverlap(t *testing.T) {
 	document := domain.NormalizedDocument{Blocks: []domain.MarkdownBlock{
 		{Type: domain.BlockParagraph, HeadingPath: []string{"商品"}, Content: "abcdefghijklmnopqrst", StartLine: 1, EndLine: 1},
@@ -121,7 +151,7 @@ func TestSplitterPrependsCompleteSemanticOverlap(t *testing.T) {
 	}}
 
 	chunks, err := New().Split(context.Background(), document, domain.ChunkConfig{
-		ChunkSize:    8,
+		ChunkSize:    11,
 		ChunkOverlap: 2,
 	})
 	if err != nil {
@@ -244,7 +274,7 @@ func TestSplitterBreaksOversizedTextAtSentenceAndKeepsUnicodeValid(t *testing.T)
 	}}}
 
 	chunks, err := New().Split(context.Background(), document, domain.ChunkConfig{
-		ChunkSize:    8,
+		ChunkSize:    11,
 		ChunkOverlap: 0,
 	})
 	if err != nil {
@@ -280,7 +310,7 @@ func TestSplitterSkipsSuffixWhenNoMeaningfulTextFitsOverlapBudget(t *testing.T) 
 	}}}
 
 	chunks, err := New().Split(context.Background(), document, domain.ChunkConfig{
-		ChunkSize:    8,
+		ChunkSize:    11,
 		ChunkOverlap: 2,
 	})
 	if err != nil {

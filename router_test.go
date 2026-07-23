@@ -240,6 +240,15 @@ func TestRAGCreateIngestionRequiresExactlyOneFile(t *testing.T) {
 		}
 		assertJSONField(t, response.Body.Bytes(), "code", domain.CodeFileRequired)
 	})
+
+	t.Run("ordinary field with file name", func(t *testing.T) {
+		body, headers := multipartWithFileValue(t, "catalog/phone", "not-a-file")
+		response := ut.PerformRequest(h.Engine, "POST", "/api/v1/rag/ingestions", body, headers...)
+		if response.Code != 400 {
+			t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.Bytes())
+		}
+		assertJSONField(t, response.Body.Bytes(), "code", domain.CodeFileRequired)
+	})
 }
 
 func TestRAGCreateIngestionReadsAtMostMaximumPlusOne(t *testing.T) {
@@ -398,6 +407,12 @@ func TestRAGMultipartTCPRejectsOversizedEnvelopeBeforeSubmit(t *testing.T) {
 			}
 			if response.StatusCode != stdhttp.StatusRequestEntityTooLarge {
 				t.Fatalf("status = %d, want 413; body = %q", response.StatusCode, raw)
+			}
+			if contentType := response.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "text/plain") {
+				t.Fatalf("Content-Type = %q, want Hertz plain-text transport rejection", contentType)
+			}
+			if json.Valid(raw) {
+				t.Fatalf("transport-level 413 unexpectedly used the application JSON envelope: %q", raw)
 			}
 			if len(raw) > 4096 {
 				t.Fatalf("error response bytes = %d, want at most 4096", len(raw))
@@ -719,6 +734,35 @@ func multipartWithFiles(
 		if _, err := part.Write(file.content); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &ut.Body{Body: bytes.NewReader(body.Bytes()), Len: body.Len()}, []ut.Header{{
+		Key: "Content-Type", Value: writer.FormDataContentType(),
+	}}
+}
+
+func multipartWithFileValue(
+	t *testing.T,
+	key string,
+	value string,
+) (*ut.Body, []ut.Header) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("document_key", key); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteField("file", value); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("file", "catalog.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("# 商品")); err != nil {
+		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)

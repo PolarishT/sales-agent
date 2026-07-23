@@ -69,7 +69,11 @@ func (s *Splitter) Split(
 		if strings.TrimSpace(block.Content) == "" {
 			continue
 		}
-		splitUnits, err := s.splitBlock(ctx, block, config.ChunkSize)
+		splitUnits, err := s.splitBlock(
+			ctx,
+			block,
+			s.contentBudget(block.HeadingPath, config.ChunkSize),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -173,16 +177,17 @@ func (s *Splitter) packHeadingGroup(
 ) []chunkDraft {
 	drafts := make([]chunkDraft, 0, len(units))
 	var previous []semanticUnit
+	contentBudget := s.contentBudget(units[0].headingPath, chunkSize)
 
 	for next := 0; next < len(units); {
 		fresh := units[next]
-		overlap := s.overlapForNext(previous, fresh, chunkSize, overlapTarget)
+		overlap := s.overlapForNext(previous, fresh, contentBudget, overlapTarget)
 		current := append(append([]semanticUnit(nil), overlap...), fresh)
 		next++
 
 		for next < len(units) {
 			candidate := append(append([]semanticUnit(nil), current...), units[next])
-			if s.estimator.Estimate(joinUnitContent(candidate)) > chunkSize {
+			if s.estimator.Estimate(joinUnitContent(candidate)) > contentBudget {
 				break
 			}
 			current = append(current, units[next])
@@ -198,13 +203,18 @@ func (s *Splitter) packHeadingGroup(
 	return drafts
 }
 
+func (s *Splitter) contentBudget(headingPath []string, chunkSize int) int {
+	headingCost := s.estimator.Estimate(strings.Join(headingPath, " > "))
+	return max(1, chunkSize-headingCost)
+}
+
 func (s *Splitter) overlapForNext(
 	previous []semanticUnit,
 	fresh semanticUnit,
-	chunkSize, target int,
+	contentBudget, target int,
 ) []semanticUnit {
 	if target <= 0 || len(previous) == 0 ||
-		s.estimator.Estimate(fresh.content) >= chunkSize {
+		s.estimator.Estimate(fresh.content) >= contentBudget {
 		return nil
 	}
 
@@ -213,7 +223,7 @@ func (s *Splitter) overlapForNext(
 		s.estimator.Estimate(joinUnitContent(append(
 			append([]semanticUnit(nil), selected...),
 			fresh,
-		))) > chunkSize {
+		))) > contentBudget {
 		selected = selected[1:]
 	}
 	if len(selected) == 0 {
@@ -222,7 +232,7 @@ func (s *Splitter) overlapForNext(
 	if s.estimator.Estimate(joinUnitContent(append(
 		append([]semanticUnit(nil), selected...),
 		fresh,
-	))) <= chunkSize {
+	))) <= contentBudget {
 		return selected
 	}
 
@@ -230,7 +240,7 @@ func (s *Splitter) overlapForNext(
 	if !last.allowTextSuffix {
 		return nil
 	}
-	available := chunkSize - s.estimator.Estimate(fresh.content)
+	available := contentBudget - s.estimator.Estimate(fresh.content)
 	if available <= 0 {
 		return nil
 	}
@@ -239,7 +249,7 @@ func (s *Splitter) overlapForNext(
 		return nil
 	}
 	last.content = suffix
-	if s.estimator.Estimate(joinUnitContent([]semanticUnit{last, fresh})) > chunkSize {
+	if s.estimator.Estimate(joinUnitContent([]semanticUnit{last, fresh})) > contentBudget {
 		return nil
 	}
 	return []semanticUnit{last}
