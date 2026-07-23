@@ -79,6 +79,20 @@ func TestGeneratedRoutesExcludePing(t *testing.T) {
 	}
 }
 
+func TestRAGIngestionRoutesAreGenerated(t *testing.T) {
+	h := newTestServer(&fakeHealthChecker{})
+
+	create := ut.PerformRequest(h.Engine, "POST", "/api/v1/rag/ingestions", nil)
+	if create.Code == 404 {
+		t.Fatal("POST /api/v1/rag/ingestions is not registered")
+	}
+
+	get := ut.PerformRequest(h.Engine, "GET", "/api/v1/rag/ingestions/550e8400-e29b-41d4-a716-446655440000", nil)
+	if get.Code == 404 {
+		t.Fatal("GET /api/v1/rag/ingestions/:ingestion_id is not registered")
+	}
+}
+
 func TestStableTransportErrors(t *testing.T) {
 	h := newTestServer(&fakeHealthChecker{})
 	notFound := ut.PerformRequest(h.Engine, "GET", "/missing", nil)
