@@ -34,6 +34,7 @@ const (
 	CodeInvalidMarkdownEncoding  = "INVALID_MARKDOWN_ENCODING"
 	CodeEmptyDocument            = "EMPTY_DOCUMENT"
 	CodeInvalidIngestionID       = "INVALID_INGESTION_ID"
+	CodeInvalidIngestionState    = "INVALID_INGESTION_STATE"
 	CodeIngestionInProgress      = "INGESTION_IN_PROGRESS"
 	CodeIngestionNotFound        = "INGESTION_NOT_FOUND"
 	CodeIngestionQueueFull       = "INGESTION_QUEUE_FULL"

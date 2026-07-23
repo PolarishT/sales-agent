@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -490,16 +491,18 @@ func TestIngestionUpdateStageAndProgressPersistExactValues(t *testing.T) {
 	fixture := newRepositoryFixture(t)
 	defer fixture.finish(t)
 	ingestionID := uuid.New()
-	fixture.mock.ExpectExec(`UPDATE "rag_document_versions" SET .*"status".*"stage".*"updated_at".*WHERE .*"ingestion_id" = \$4`).
+	fixture.mock.ExpectExec(`UPDATE "rag_document_versions" SET .*"status".*"stage".*"updated_at".*WHERE .*"ingestion_id" = \$4.*"status" = \$5.*"stage" = \$6`).
 		WithArgs(
 			string(domain.StatusRunning),
 			string(domain.StageChunking),
 			fixture.now,
 			ingestionID,
+			string(domain.StatusRunning),
+			string(domain.StageNormalizing),
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	fixture.mock.ExpectExec(`UPDATE "rag_document_versions" SET .*"chunk_count".*"embedded_chunk_count".*"updated_at".*WHERE .*"ingestion_id" = \$4`).
-		WithArgs(5, 3, fixture.now, ingestionID).
+	fixture.mock.ExpectExec(`UPDATE "rag_document_versions" SET .*"chunk_count".*"embedded_chunk_count".*"updated_at".*WHERE .*"ingestion_id" = \$4.*"status" = \$5`).
+		WithArgs(5, 3, fixture.now, ingestionID, string(domain.StatusRunning)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := fixture.repository.UpdateStage(
@@ -520,11 +523,118 @@ func TestIngestionUpdateStageAndProgressPersistExactValues(t *testing.T) {
 	}
 }
 
+func TestIngestionConditionalUpdatesRejectTerminalTask(t *testing.T) {
+	tests := []struct {
+		name   string
+		expect func(sqlmock.Sqlmock, uuid.UUID, time.Time)
+		call   func(*IngestionRepository, uuid.UUID) error
+	}{
+		{
+			name: "stage",
+			expect: func(mock sqlmock.Sqlmock, ingestionID uuid.UUID, now time.Time) {
+				mock.ExpectExec(`UPDATE "rag_document_versions".*WHERE .*"status" = \$5.*"stage" = \$6`).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+			},
+			call: func(repository *IngestionRepository, ingestionID uuid.UUID) error {
+				return repository.UpdateStage(
+					context.Background(),
+					ingestionID,
+					domain.StatusRunning,
+					domain.StageChunking,
+				)
+			},
+		},
+		{
+			name: "progress",
+			expect: func(mock sqlmock.Sqlmock, ingestionID uuid.UUID, now time.Time) {
+				mock.ExpectExec(`UPDATE "rag_document_versions".*WHERE .*"status" = \$5`).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+			},
+			call: func(repository *IngestionRepository, ingestionID uuid.UUID) error {
+				return repository.UpdateProgress(context.Background(), ingestionID, 5, 3)
+			},
+		},
+		{
+			name: "failure",
+			expect: func(mock sqlmock.Sqlmock, ingestionID uuid.UUID, now time.Time) {
+				mock.ExpectExec(`UPDATE "rag_document_versions".*WHERE .*"status" IN \(\$8, \$9\)`).
+					WillReturnResult(sqlmock.NewResult(0, 0))
+			},
+			call: func(repository *IngestionRepository, ingestionID uuid.UUID) error {
+				return repository.MarkFailed(
+					context.Background(),
+					ingestionID,
+					domain.StageEmbedding,
+					domain.Failure{Code: domain.CodeEmbeddingFailed, Message: "向量生成失败"},
+				)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRepositoryFixture(t)
+			defer fixture.finish(t)
+			ingestionID := uuid.New()
+			test.expect(fixture.mock, ingestionID, fixture.now)
+			fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"ingestion_id" = \$1 LIMIT 1`).
+				WithArgs(ingestionID).
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(80))
+
+			err := test.call(fixture.repository, ingestionID)
+			if !domain.IsCode(err, domain.CodeInvalidIngestionState) {
+				t.Fatalf(
+					"error = %v (cause: %v), want %s",
+					err,
+					errors.Unwrap(err),
+					domain.CodeInvalidIngestionState,
+				)
+			}
+		})
+	}
+}
+
+func TestIngestionConditionalUpdateDistinguishesMissingTask(t *testing.T) {
+	fixture := newRepositoryFixture(t)
+	defer fixture.finish(t)
+	ingestionID := uuid.New()
+	fixture.mock.ExpectExec(`UPDATE "rag_document_versions".*WHERE .*"status" = \$5`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"ingestion_id" = \$1 LIMIT 1`).
+		WithArgs(ingestionID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	err := fixture.repository.UpdateProgress(context.Background(), ingestionID, 5, 3)
+	if !domain.IsCode(err, domain.CodeIngestionNotFound) {
+		t.Fatalf(
+			"error = %v (cause: %v), want %s",
+			err,
+			errors.Unwrap(err),
+			domain.CodeIngestionNotFound,
+		)
+	}
+}
+
+func TestIngestionUpdateStageRejectsIllegalTransitionBeforeSQL(t *testing.T) {
+	fixture := newRepositoryFixture(t)
+	defer fixture.finish(t)
+
+	err := fixture.repository.UpdateStage(
+		context.Background(),
+		uuid.New(),
+		domain.StatusSucceeded,
+		domain.StageCompleted,
+	)
+	if !domain.IsCode(err, domain.CodeInvalidIngestionState) {
+		t.Fatalf("error = %v, want %s", err, domain.CodeInvalidIngestionState)
+	}
+}
+
 func TestIngestionMarkFailedStoresOnlyStableFailure(t *testing.T) {
 	fixture := newRepositoryFixture(t)
 	defer fixture.finish(t)
 	ingestionID := uuid.New()
-	fixture.mock.ExpectExec(`UPDATE "rag_document_versions" SET .*"status".*"stage".*"failure_code".*"failure_message".*"updated_at".*"completed_at".*WHERE .*"ingestion_id" = \$7`).
+	fixture.mock.ExpectExec(`UPDATE "rag_document_versions" SET .*"status".*"stage".*"failure_code".*"failure_message".*"updated_at".*"completed_at".*WHERE .*"ingestion_id" = \$7.*"status" IN \(\$8, \$9\)`).
 		WithArgs(
 			string(domain.StatusFailed),
 			string(domain.StageEmbedding),
@@ -533,6 +643,8 @@ func TestIngestionMarkFailedStoresOnlyStableFailure(t *testing.T) {
 			fixture.now,
 			fixture.now,
 			ingestionID,
+			string(domain.StatusQueued),
+			string(domain.StatusRunning),
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -544,6 +656,16 @@ func TestIngestionMarkFailedStoresOnlyStableFailure(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("MarkFailed() error = %v (cause: %v)", err, errors.Unwrap(err))
+	}
+}
+
+func TestIngestionStoreAndActivateRejectsEmptyChunksBeforeTransaction(t *testing.T) {
+	fixture := newRepositoryFixture(t)
+	defer fixture.finish(t)
+
+	err := fixture.repository.StoreAndActivate(context.Background(), uuid.New(), nil)
+	if !domain.IsCode(err, domain.CodeInvalidEmbeddingResponse) {
+		t.Fatalf("error = %v, want %s", err, domain.CodeInvalidEmbeddingResponse)
 	}
 }
 
@@ -564,12 +686,61 @@ func TestIngestionStoreAndActivateRejectsWrongDimensionBeforeTransaction(t *test
 	}
 }
 
+func TestIngestionStoreAndActivateRejectsNonFiniteOrFloat32OverflowBeforeTransaction(t *testing.T) {
+	tests := []struct {
+		name  string
+		value float64
+	}{
+		{name: "nan", value: math.NaN()},
+		{name: "positive infinity", value: math.Inf(1)},
+		{name: "negative infinity", value: math.Inf(-1)},
+		{name: "float32 overflow", value: math.MaxFloat64},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRepositoryFixture(t)
+			defer fixture.finish(t)
+			vector := make([]float64, 1024)
+			vector[100] = test.value
+
+			err := fixture.repository.StoreAndActivate(
+				context.Background(),
+				uuid.New(),
+				[]domain.EmbeddedChunk{{
+					Chunk:  domain.Chunk{ChunkIndex: 0, Content: "x", EmbeddingContent: "x"},
+					Vector: vector,
+				}},
+			)
+			if !domain.IsCode(err, domain.CodeInvalidEmbeddingResponse) {
+				t.Fatalf("error = %v, want %s", err, domain.CodeInvalidEmbeddingResponse)
+			}
+		})
+	}
+}
+
 func TestIngestionStoreAndActivateCommitsAtomicReplacement(t *testing.T) {
 	fixture := newRepositoryFixture(t)
 	defer fixture.finish(t)
 	ingestionID := uuid.New()
 	fixture.mock.ExpectBegin()
-	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"ingestion_id".*\$1.*LIMIT 2 FOR UPDATE`).
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"ingestion_id".*\$1.*LIMIT 2`).
+		WillReturnRows(
+			versionRow(
+				80,
+				ingestionID,
+				10,
+				8,
+				"new-hash",
+				domain.StatusRunning,
+				domain.StageStoring,
+				fixture.now,
+			),
+		)
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_documents".*"id" = \$1.*LIMIT 2 FOR UPDATE`).
+		WithArgs(int64(10)).
+		WillReturnRows(documentRow(10, "catalog/global", 7, fixture.now))
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"document_id" = \$1.*FOR UPDATE`).
+		WithArgs(int64(10)).
 		WillReturnRows(
 			versionRow(
 				80,
@@ -597,7 +768,7 @@ func TestIngestionStoreAndActivateCommitsAtomicReplacement(t *testing.T) {
 			int64(80),
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(90))
-	fixture.mock.ExpectExec(`UPDATE "rag_document_versions" SET .*"status".*"stage".*"chunk_count".*"embedded_chunk_count".*"updated_at".*"completed_at".*WHERE .*"id" = \$7`).
+	fixture.mock.ExpectExec(`UPDATE "rag_document_versions" SET .*"status".*"stage".*"chunk_count".*"embedded_chunk_count".*"updated_at".*"completed_at".*WHERE .*"id" = \$7.*"status" = \$8.*"stage" = \$9`).
 		WithArgs(
 			string(domain.StatusSucceeded),
 			string(domain.StageCompleted),
@@ -606,10 +777,12 @@ func TestIngestionStoreAndActivateCommitsAtomicReplacement(t *testing.T) {
 			fixture.now,
 			fixture.now,
 			int64(80),
+			string(domain.StatusRunning),
+			string(domain.StageStoring),
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	fixture.mock.ExpectExec(`UPDATE "rag_documents" SET .*"current_version".*"updated_at".*WHERE .*"id" = \$3`).
-		WithArgs(8, fixture.now, int64(10)).
+	fixture.mock.ExpectExec(`UPDATE "rag_documents" SET .*"current_version".*"updated_at".*WHERE .*"id" = \$3.*"current_version" < \$4`).
+		WithArgs(8, fixture.now, int64(10), 8).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	fixture.mock.ExpectExec(`DELETE FROM "rag_document_versions".*"document_id" = \$1.*"id" <> \$2`).
 		WithArgs(int64(10), int64(80)).
@@ -638,12 +811,205 @@ func TestIngestionStoreAndActivateCommitsAtomicReplacement(t *testing.T) {
 	}
 }
 
+func TestIngestionStoreAndActivateRejectsTerminalStaleOrSupersededTarget(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentVersion int
+		targetVersion  int
+		targetStatus   domain.Status
+		targetStage    domain.Stage
+	}{
+		{
+			name:           "terminal retry",
+			currentVersion: 8,
+			targetVersion:  8,
+			targetStatus:   domain.StatusSucceeded,
+			targetStage:    domain.StageCompleted,
+		},
+		{
+			name:           "failed task",
+			currentVersion: 7,
+			targetVersion:  8,
+			targetStatus:   domain.StatusFailed,
+			targetStage:    domain.StageStoring,
+		},
+		{
+			name:           "wrong stage",
+			currentVersion: 7,
+			targetVersion:  8,
+			targetStatus:   domain.StatusRunning,
+			targetStage:    domain.StageEmbedding,
+		},
+		{
+			name:           "stale current version",
+			currentVersion: 9,
+			targetVersion:  8,
+			targetStatus:   domain.StatusRunning,
+			targetStage:    domain.StageStoring,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRepositoryFixture(t)
+			defer fixture.finish(t)
+			ingestionID := uuid.New()
+			fixture.mock.ExpectBegin()
+			fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"ingestion_id".*\$1.*LIMIT 2`).
+				WillReturnRows(
+					versionRow(
+						80,
+						ingestionID,
+						10,
+						test.targetVersion,
+						"target-hash",
+						test.targetStatus,
+						test.targetStage,
+						fixture.now,
+					),
+				)
+			fixture.mock.ExpectQuery(`SELECT .* FROM "rag_documents".*"id" = \$1.*LIMIT 2 FOR UPDATE`).
+				WillReturnRows(documentRow(10, "catalog/global", test.currentVersion, fixture.now))
+			fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"document_id" = \$1.*FOR UPDATE`).
+				WillReturnRows(
+					versionRow(
+						80,
+						ingestionID,
+						10,
+						test.targetVersion,
+						"target-hash",
+						test.targetStatus,
+						test.targetStage,
+						fixture.now,
+					),
+				)
+			fixture.mock.ExpectRollback()
+
+			err := fixture.repository.StoreAndActivate(
+				context.Background(),
+				ingestionID,
+				[]domain.EmbeddedChunk{{
+					Chunk:  domain.Chunk{ChunkIndex: 0, Content: "x", EmbeddingContent: "x"},
+					Vector: make([]float64, 1024),
+				}},
+			)
+			if !domain.IsCode(err, domain.CodeInvalidIngestionState) {
+				t.Fatalf("error = %v, want %s", err, domain.CodeInvalidIngestionState)
+			}
+		})
+	}
+}
+
+func TestIngestionStoreAndActivateRejectsOtherActiveOrHigherVersion(t *testing.T) {
+	tests := []struct {
+		name        string
+		otherID     uuid.UUID
+		otherNumber int
+		otherStatus domain.Status
+	}{
+		{
+			name:        "other active version",
+			otherID:     uuid.New(),
+			otherNumber: 7,
+			otherStatus: domain.StatusQueued,
+		},
+		{
+			name:        "higher terminal version",
+			otherID:     uuid.New(),
+			otherNumber: 9,
+			otherStatus: domain.StatusFailed,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRepositoryFixture(t)
+			defer fixture.finish(t)
+			ingestionID := uuid.New()
+			fixture.mock.ExpectBegin()
+			fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"ingestion_id".*\$1.*LIMIT 2`).
+				WillReturnRows(
+					versionRow(
+						80,
+						ingestionID,
+						10,
+						8,
+						"target-hash",
+						domain.StatusRunning,
+						domain.StageStoring,
+						fixture.now,
+					),
+				)
+			fixture.mock.ExpectQuery(`SELECT .* FROM "rag_documents".*"id" = \$1.*LIMIT 2 FOR UPDATE`).
+				WillReturnRows(documentRow(10, "catalog/global", 6, fixture.now))
+			fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"document_id" = \$1.*FOR UPDATE`).
+				WillReturnRows(
+					versionRow(
+						80,
+						ingestionID,
+						10,
+						8,
+						"target-hash",
+						domain.StatusRunning,
+						domain.StageStoring,
+						fixture.now,
+					).AddRow(
+						81,
+						test.otherID.String(),
+						10,
+						test.otherNumber,
+						"catalog.md",
+						"other-hash",
+						"# other",
+						int64(7),
+						string(test.otherStatus),
+						string(domain.StageQueued),
+						0,
+						0,
+						nil,
+						nil,
+						fixture.now,
+						fixture.now,
+						nil,
+					),
+				)
+			fixture.mock.ExpectRollback()
+
+			err := fixture.repository.StoreAndActivate(
+				context.Background(),
+				ingestionID,
+				[]domain.EmbeddedChunk{{
+					Chunk:  domain.Chunk{ChunkIndex: 0, Content: "x", EmbeddingContent: "x"},
+					Vector: make([]float64, 1024),
+				}},
+			)
+			if !domain.IsCode(err, domain.CodeInvalidIngestionState) {
+				t.Fatalf("error = %v, want %s", err, domain.CodeInvalidIngestionState)
+			}
+		})
+	}
+}
+
 func TestIngestionStoreAndActivateRollsBackOnChunkInsertFailure(t *testing.T) {
 	fixture := newRepositoryFixture(t)
 	defer fixture.finish(t)
 	ingestionID := uuid.New()
 	fixture.mock.ExpectBegin()
-	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*FOR UPDATE`).
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"ingestion_id"`).
+		WillReturnRows(
+			versionRow(
+				80,
+				ingestionID,
+				10,
+				8,
+				"new-hash",
+				domain.StatusRunning,
+				domain.StageStoring,
+				fixture.now,
+			),
+		)
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_documents".*FOR UPDATE`).
+		WillReturnRows(documentRow(10, "catalog/global", 7, fixture.now))
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"document_id".*FOR UPDATE`).
 		WillReturnRows(
 			versionRow(
 				80,
@@ -687,7 +1053,22 @@ func TestIngestionStoreAndActivateRollsBackOnActivationUpdateFailure(t *testing.
 	defer fixture.finish(t)
 	ingestionID := uuid.New()
 	fixture.mock.ExpectBegin()
-	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*FOR UPDATE`).
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"ingestion_id"`).
+		WillReturnRows(
+			versionRow(
+				80,
+				ingestionID,
+				10,
+				8,
+				"new-hash",
+				domain.StatusRunning,
+				domain.StageStoring,
+				fixture.now,
+			),
+		)
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_documents".*FOR UPDATE`).
+		WillReturnRows(documentRow(10, "catalog/global", 7, fixture.now))
+	fixture.mock.ExpectQuery(`SELECT .* FROM "rag_document_versions".*"document_id".*FOR UPDATE`).
 		WillReturnRows(
 			versionRow(
 				80,

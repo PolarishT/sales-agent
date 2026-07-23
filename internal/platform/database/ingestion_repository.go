@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/PolarishT/sales-agent/ent"
@@ -197,14 +198,22 @@ func (repository *IngestionRepository) UpdateStage(
 	status domain.Status,
 	stage domain.Stage,
 ) error {
+	sourceStatus, sourceStage, ok := allowedStageTransition(status, stage)
+	if !ok {
+		return invalidIngestionStateError()
+	}
 	affected, err := repository.client.RagDocumentVersion.
 		Update().
-		Where(ragdocumentversion.IngestionIDEQ(ingestionID)).
+		Where(
+			ragdocumentversion.IngestionIDEQ(ingestionID),
+			ragdocumentversion.StatusEQ(string(sourceStatus)),
+			ragdocumentversion.StageEQ(string(sourceStage)),
+		).
 		SetStatus(string(status)).
 		SetStage(string(stage)).
 		SetUpdatedAt(repository.now()).
 		Save(ctx)
-	return mapUpdateResult(affected, err)
+	return repository.mapConditionalUpdateResult(ctx, ingestionID, affected, err)
 }
 
 func (repository *IngestionRepository) UpdateProgress(
@@ -215,12 +224,15 @@ func (repository *IngestionRepository) UpdateProgress(
 ) error {
 	affected, err := repository.client.RagDocumentVersion.
 		Update().
-		Where(ragdocumentversion.IngestionIDEQ(ingestionID)).
+		Where(
+			ragdocumentversion.IngestionIDEQ(ingestionID),
+			ragdocumentversion.StatusEQ(string(domain.StatusRunning)),
+		).
 		SetChunkCount(chunkCount).
 		SetEmbeddedChunkCount(embeddedChunkCount).
 		SetUpdatedAt(repository.now()).
 		Save(ctx)
-	return mapUpdateResult(affected, err)
+	return repository.mapConditionalUpdateResult(ctx, ingestionID, affected, err)
 }
 
 func (repository *IngestionRepository) MarkFailed(
@@ -232,7 +244,13 @@ func (repository *IngestionRepository) MarkFailed(
 	now := repository.now()
 	affected, err := repository.client.RagDocumentVersion.
 		Update().
-		Where(ragdocumentversion.IngestionIDEQ(ingestionID)).
+		Where(
+			ragdocumentversion.IngestionIDEQ(ingestionID),
+			ragdocumentversion.StatusIn(
+				string(domain.StatusQueued),
+				string(domain.StatusRunning),
+			),
+		).
 		SetStatus(string(domain.StatusFailed)).
 		SetStage(string(stage)).
 		SetFailureCode(failure.Code).
@@ -240,7 +258,7 @@ func (repository *IngestionRepository) MarkFailed(
 		SetUpdatedAt(now).
 		SetCompletedAt(now).
 		Save(ctx)
-	return mapUpdateResult(affected, err)
+	return repository.mapConditionalUpdateResult(ctx, ingestionID, affected, err)
 }
 
 func (repository *IngestionRepository) StoreAndActivate(
@@ -248,13 +266,19 @@ func (repository *IngestionRepository) StoreAndActivate(
 	ingestionID uuid.UUID,
 	chunks []domain.EmbeddedChunk,
 ) error {
+	if len(chunks) == 0 {
+		return invalidEmbeddingResponseError("不能激活空 Chunk 集合")
+	}
 	for _, chunk := range chunks {
 		if len(chunk.Vector) != embeddingDimensions {
-			return domain.NewError(
-				domain.CodeInvalidEmbeddingResponse,
-				"向量维度必须是 1024",
-				nil,
-			)
+			return invalidEmbeddingResponseError("向量维度必须是 1024")
+		}
+		for _, value := range chunk.Vector {
+			if math.IsNaN(value) ||
+				math.IsInf(value, 0) ||
+				math.Abs(value) > math.MaxFloat32 {
+				return invalidEmbeddingResponseError("向量包含无法存储的数值")
+			}
 		}
 	}
 
@@ -272,6 +296,17 @@ func (repository *IngestionRepository) StoreAndActivate(
 	version, err := tx.RagDocumentVersion.
 		Query().
 		Where(ragdocumentversion.IngestionIDEQ(ingestionID)).
+		Only(ctx)
+	if ent.IsNotFound(err) {
+		return ingestionNotFoundError()
+	}
+	if err != nil {
+		return documentStoreError(err)
+	}
+
+	document, err := tx.RagDocument.
+		Query().
+		Where(ragdocument.IDEQ(version.DocumentID)).
 		ForUpdate().
 		Only(ctx)
 	if ent.IsNotFound(err) {
@@ -279,6 +314,26 @@ func (repository *IngestionRepository) StoreAndActivate(
 	}
 	if err != nil {
 		return documentStoreError(err)
+	}
+
+	versions, err := tx.RagDocumentVersion.
+		Query().
+		Where(ragdocumentversion.DocumentIDEQ(document.ID)).
+		ForUpdate().
+		All(ctx)
+	if err != nil {
+		return documentStoreError(err)
+	}
+	version = findVersionByID(versions, version.ID)
+	if version == nil {
+		return ingestionNotFoundError()
+	}
+	if version.DocumentID != document.ID ||
+		version.Status != string(domain.StatusRunning) ||
+		version.Stage != string(domain.StageStoring) ||
+		document.CurrentVersion >= version.Version ||
+		hasSupersedingVersion(versions, version) {
+		return invalidIngestionStateError()
 	}
 
 	now := repository.now()
@@ -308,7 +363,11 @@ func (repository *IngestionRepository) StoreAndActivate(
 	count := len(chunks)
 	affected, err := tx.RagDocumentVersion.
 		Update().
-		Where(ragdocumentversion.IDEQ(version.ID)).
+		Where(
+			ragdocumentversion.IDEQ(version.ID),
+			ragdocumentversion.StatusEQ(string(domain.StatusRunning)),
+			ragdocumentversion.StageEQ(string(domain.StageStoring)),
+		).
 		SetStatus(string(domain.StatusSucceeded)).
 		SetStage(string(domain.StageCompleted)).
 		SetChunkCount(count).
@@ -324,7 +383,10 @@ func (repository *IngestionRepository) StoreAndActivate(
 	}
 	affected, err = tx.RagDocument.
 		Update().
-		Where(ragdocument.IDEQ(version.DocumentID)).
+		Where(
+			ragdocument.IDEQ(version.DocumentID),
+			ragdocument.CurrentVersionLT(version.Version),
+		).
 		SetCurrentVersion(version.Version).
 		SetUpdatedAt(now).
 		Save(ctx)
@@ -420,14 +482,81 @@ func taskFromVersion(documentKey string, version *ent.RagDocumentVersion) domain
 	return task
 }
 
-func mapUpdateResult(affected int, err error) error {
+func (repository *IngestionRepository) mapConditionalUpdateResult(
+	ctx context.Context,
+	ingestionID uuid.UUID,
+	affected int,
+	err error,
+) error {
 	if err != nil {
 		return documentStoreError(err)
 	}
-	if affected == 0 {
+	if affected > 0 {
+		return nil
+	}
+	exists, err := repository.client.RagDocumentVersion.
+		Query().
+		Where(ragdocumentversion.IngestionIDEQ(ingestionID)).
+		Exist(ctx)
+	if err != nil {
+		return documentStoreError(err)
+	}
+	if !exists {
 		return ingestionNotFoundError()
 	}
+	return invalidIngestionStateError()
+}
+
+func allowedStageTransition(
+	status domain.Status,
+	stage domain.Stage,
+) (domain.Status, domain.Stage, bool) {
+	if status != domain.StatusRunning {
+		return "", "", false
+	}
+	switch stage {
+	case domain.StageParsing:
+		return domain.StatusQueued, domain.StageQueued, true
+	case domain.StageFiltering:
+		return domain.StatusRunning, domain.StageParsing, true
+	case domain.StageNormalizing:
+		return domain.StatusRunning, domain.StageFiltering, true
+	case domain.StageChunking:
+		return domain.StatusRunning, domain.StageNormalizing, true
+	case domain.StageEmbedding:
+		return domain.StatusRunning, domain.StageChunking, true
+	case domain.StageStoring:
+		return domain.StatusRunning, domain.StageEmbedding, true
+	default:
+		return "", "", false
+	}
+}
+
+func findVersionByID(
+	versions []*ent.RagDocumentVersion,
+	id int64,
+) *ent.RagDocumentVersion {
+	for _, version := range versions {
+		if version.ID == id {
+			return version
+		}
+	}
 	return nil
+}
+
+func hasSupersedingVersion(
+	versions []*ent.RagDocumentVersion,
+	target *ent.RagDocumentVersion,
+) bool {
+	for _, version := range versions {
+		if version.ID == target.ID {
+			continue
+		}
+		if version.Version > target.Version || isInProgress(version) {
+			return true
+		}
+	}
+	return false
 }
 
 func documentStoreError(err error) error {
@@ -436,6 +565,18 @@ func documentStoreError(err error) error {
 
 func ingestionNotFoundError() error {
 	return domain.NewError(domain.CodeIngestionNotFound, "导入任务不存在", nil)
+}
+
+func invalidIngestionStateError() error {
+	return domain.NewError(
+		domain.CodeInvalidIngestionState,
+		"导入任务当前状态不允许此操作",
+		nil,
+	)
+}
+
+func invalidEmbeddingResponseError(message string) error {
+	return domain.NewError(domain.CodeInvalidEmbeddingResponse, message, nil)
 }
 
 var _ ingestion.Repository = (*IngestionRepository)(nil)
