@@ -170,6 +170,9 @@ func appendNormalizedList(lines *[]string, list *ast.List, source []byte, indent
 		wroteMarker := false
 
 		for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+			if skipListItemNode(child) {
+				continue
+			}
 			if childList, ok := child.(*ast.List); ok {
 				if !wroteMarker {
 					*lines = append(*lines, itemPrefix)
@@ -180,7 +183,8 @@ func appendNormalizedList(lines *[]string, list *ast.List, source []byte, indent
 			}
 
 			if code, language, ok := listItemCode(child, source); ok {
-				opening := "```" + language
+				fence := safeCodeFence(code)
+				opening := fence + language
 				if !wroteMarker {
 					*lines = append(*lines, itemPrefix+" "+opening)
 					wroteMarker = true
@@ -192,7 +196,7 @@ func appendNormalizedList(lines *[]string, list *ast.List, source []byte, indent
 						*lines = append(*lines, contentIndent+line)
 					}
 				}
-				*lines = append(*lines, contentIndent+"```")
+				*lines = append(*lines, contentIndent+fence)
 				continue
 			}
 
@@ -210,6 +214,31 @@ func appendNormalizedList(lines *[]string, list *ast.List, source []byte, indent
 		if !wroteMarker {
 			*lines = append(*lines, itemPrefix)
 		}
+	}
+}
+
+func safeCodeFence(code string) string {
+	longest := 0
+	current := 0
+	for index := 0; index < len(code); index++ {
+		if code[index] == '`' {
+			current++
+			if current > longest {
+				longest = current
+			}
+			continue
+		}
+		current = 0
+	}
+	return strings.Repeat("`", max(3, longest+1))
+}
+
+func skipListItemNode(node ast.Node) bool {
+	switch node.(type) {
+	case *ast.HTMLBlock, *ast.RawHTML, *ast.ThematicBreak:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -225,6 +225,109 @@ func TestNormalizerKeepsNestedListUnderOrderedParent(t *testing.T) {
 	}
 }
 
+func TestNormalizerDoesNotReintroduceRawHTMLFromLists(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name: "direct list item",
+			source: `- 保留事实
+
+  <script>alert("direct")</script>
+
+  <!-- direct comment -->
+`,
+			want: "- 保留事实",
+		},
+		{
+			name: "nested list item",
+			source: `1. 父项
+   - 子项
+
+     <script>alert("nested")</script>
+
+     <!-- nested comment -->
+`,
+			want: "1. 父项\n   - 子项",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := NewParser().Parse(context.Background(), []byte(test.source))
+			if err != nil {
+				t.Fatal(err)
+			}
+			filtered, err := NewFilter().Apply(context.Background(), parsed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			normalized, err := NewNormalizer().Normalize(context.Background(), filtered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(normalized.Blocks) != 1 {
+				t.Fatalf("blocks = %+v", normalized.Blocks)
+			}
+			content := normalized.Blocks[0].Content
+			if content != test.want {
+				t.Fatalf("content = %q, want %q", content, test.want)
+			}
+			if strings.Contains(content, "script") || strings.Contains(content, "comment") || strings.Contains(content, "alert") {
+				t.Fatalf("raw HTML returned to normalized content: %q", content)
+			}
+		})
+	}
+}
+
+func TestNormalizerChoosesFenceLongerThanNestedCodeBackticks(t *testing.T) {
+	source := []byte("- 示例\n  ````text\n  before\n  ```\n  after\n  ````\n")
+	parsed, err := NewParser().Parse(context.Background(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := NewFilter().Apply(context.Background(), parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized, err := NewNormalizer().Normalize(context.Background(), filtered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalized.Blocks) != 1 {
+		t.Fatalf("blocks = %+v", normalized.Blocks)
+	}
+	content := normalized.Blocks[0].Content
+	want := "- 示例\n  ````text\n  before\n  ```\n  after\n  ````"
+	if content != want {
+		t.Fatalf("content = %q, want %q", content, want)
+	}
+
+	root := parseFragment([]byte(content))
+	list, ok := root.FirstChild().(*ast.List)
+	if !ok || root.ChildCount() != 1 {
+		t.Fatalf("round-trip root = %T, child count = %d", root.FirstChild(), root.ChildCount())
+	}
+	item, ok := list.FirstChild().(*ast.ListItem)
+	if !ok {
+		t.Fatalf("round-trip item = %T", list.FirstChild())
+	}
+	var code *ast.FencedCodeBlock
+	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+		if candidate, ok := child.(*ast.FencedCodeBlock); ok {
+			code = candidate
+		}
+	}
+	if code == nil {
+		t.Fatalf("round-trip lost fenced code: %q", content)
+	}
+	if got := string(code.Lines().Value([]byte(content))); got != "before\n```\nafter\n" {
+		t.Fatalf("round-trip code = %q", got)
+	}
+}
+
 func blockByType(t *testing.T, blocks []domain.MarkdownBlock, want domain.BlockType) domain.MarkdownBlock {
 	t.Helper()
 	for _, block := range blocks {
