@@ -151,6 +151,13 @@ func (e *Executor) ensureScheduled(ingestionID uuid.UUID) scheduleResult {
 	return scheduleAccepted
 }
 
+func (e *Executor) IsScheduled(ingestionID uuid.UUID) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	_, ok := e.scheduled[ingestionID]
+	return ok
+}
+
 func (r *Reservation) Commit(ingestionID uuid.UUID) bool {
 	if r == nil || r.executor == nil {
 		return false

@@ -10,7 +10,12 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxFailurePersistenceTimeout = 5 * time.Second
+const (
+	failurePersistenceAttempts       = 3
+	failurePersistenceAttemptTimeout = 500 * time.Millisecond
+)
+
+var errFailurePersistencePanic = errors.New("failure persistence panic")
 
 func (e *Executor) worker() {
 	defer e.wg.Done()
@@ -122,27 +127,55 @@ func (e *Executor) persistFailure(
 	fallbackStage domain.Stage,
 	failure domain.Failure,
 ) domain.Task {
-	timeout := e.taskTimeout
-	if timeout > maxFailurePersistenceTimeout {
-		timeout = maxFailurePersistenceTimeout
+	task := domain.Task{Stage: fallbackStage}
+	for attempt := 0; attempt < failurePersistenceAttempts; attempt++ {
+		candidate, err := e.persistFailureAttempt(
+			ingestionID,
+			fallbackStage,
+			failure,
+		)
+		if candidate.Stage != "" {
+			task = candidate
+		}
+		if err == nil {
+			return task
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	slog.Error(
+		"记录 RAG 导入失败状态失败",
+		"ingestion_id", ingestionID,
+		"status", domain.StatusFailed,
+		"stage", task.Stage,
+		"code", failure.Code,
+		"retry_count", failurePersistenceAttempts-1,
+	)
+	return task
+}
 
-	task, err := e.repository.GetTask(ctx, ingestionID)
+func (e *Executor) persistFailureAttempt(
+	ingestionID uuid.UUID,
+	fallbackStage domain.Stage,
+	failure domain.Failure,
+) (task domain.Task, err error) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		failurePersistenceAttemptTimeout,
+	)
+	defer cancel()
+	defer func() {
+		if recover() != nil {
+			err = errFailurePersistencePanic
+		}
+	}()
+
+	task, err = e.repository.GetTask(ctx, ingestionID)
 	if err != nil || task.Stage == "" {
 		task.Stage = fallbackStage
 	}
-	if err := e.repository.MarkFailed(ctx, ingestionID, task.Stage, failure); err != nil {
-		slog.Error(
-			"记录 RAG 导入失败状态失败",
-			"ingestion_id", ingestionID,
-			"status", domain.StatusFailed,
-			"stage", task.Stage,
-			"code", failure.Code,
-		)
+	if err = e.repository.MarkFailed(ctx, ingestionID, task.Stage, failure); err != nil {
+		return task, err
 	}
-	return task
+	return task, nil
 }
 
 func (e *Executor) persistFailureSafely(

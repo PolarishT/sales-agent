@@ -12,32 +12,36 @@ import (
 type fakeRepository struct {
 	mu sync.Mutex
 
-	inspectTask     domain.Task
-	inspectDecision SubmissionDecision
-	inspectErr      error
-	createTask      domain.Task
-	createDecision  SubmissionDecision
-	createErr       error
-	createEntered   chan struct{}
-	createRelease   chan struct{}
-	getTask         domain.Task
-	getErr          error
-	source          domain.Upload
-	loadErr         error
-	stageErr        map[domain.Stage]error
-	progressErr     error
-	activateErr     error
-	markFailedErr   error
-	markFailedPanic any
+	inspectTask      domain.Task
+	inspectDecision  SubmissionDecision
+	inspectErr       error
+	createTask       domain.Task
+	createDecision   SubmissionDecision
+	createErr        error
+	createEntered    chan struct{}
+	createRelease    chan struct{}
+	getTask          domain.Task
+	getErr           error
+	source           domain.Upload
+	loadErr          error
+	stageErr         map[domain.Stage]error
+	progressErr      error
+	activateErr      error
+	markFailedErr    error
+	markFailedPanic  any
+	markFailedErrs   []error
+	markFailedPanics []any
+	markFailedHook   func(context.Context, int) error
 
-	inspectCalls int
-	createCalls  int
-	getCalls     int
-	loadCalls    int
-	events       []string
-	progress     [][2]int
-	failures     []failureRecord
-	activated    []domain.EmbeddedChunk
+	inspectCalls    int
+	createCalls     int
+	getCalls        int
+	loadCalls       int
+	events          []string
+	progress        [][2]int
+	failures        []failureRecord
+	markFailedCalls int
+	activated       []domain.EmbeddedChunk
 }
 
 type failureRecord struct {
@@ -124,11 +128,39 @@ func (f *fakeRepository) UpdateProgress(
 }
 
 func (f *fakeRepository) MarkFailed(
-	_ context.Context,
+	ctx context.Context,
 	ingestionID uuid.UUID,
 	stage domain.Stage,
 	failure domain.Failure,
 ) error {
+	f.mu.Lock()
+	callIndex := f.markFailedCalls
+	f.markFailedCalls++
+	hook := f.markFailedHook
+	var panicValue any
+	if callIndex < len(f.markFailedPanics) {
+		panicValue = f.markFailedPanics[callIndex]
+	} else {
+		panicValue = f.markFailedPanic
+	}
+	var err error
+	if callIndex < len(f.markFailedErrs) {
+		err = f.markFailedErrs[callIndex]
+	} else {
+		err = f.markFailedErr
+	}
+	f.mu.Unlock()
+	if panicValue != nil {
+		panic(panicValue)
+	}
+	if err != nil {
+		return err
+	}
+	if hook != nil {
+		if err := hook(ctx, callIndex); err != nil {
+			return err
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failures = append(f.failures, failureRecord{
@@ -136,10 +168,7 @@ func (f *fakeRepository) MarkFailed(
 		stage:       stage,
 		failure:     failure,
 	})
-	if f.markFailedPanic != nil {
-		panic(f.markFailedPanic)
-	}
-	return f.markFailedErr
+	return nil
 }
 
 func (f *fakeRepository) StoreAndActivate(
