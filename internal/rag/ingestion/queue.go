@@ -30,6 +30,7 @@ type Executor struct {
 	wg         sync.WaitGroup
 	workerDone chan struct{}
 	pending    map[*Reservation]struct{}
+	scheduled  map[uuid.UUID]struct{}
 	active     int
 	idle       chan struct{}
 }
@@ -38,6 +39,15 @@ type Reservation struct {
 	once     sync.Once
 	executor *Executor
 }
+
+type scheduleResult uint8
+
+const (
+	scheduleAccepted scheduleResult = iota
+	scheduleAlreadyPresent
+	scheduleFull
+	scheduleUnavailable
+)
 
 func NewExecutor(
 	workers int,
@@ -74,6 +84,7 @@ func NewExecutor(
 		workers:     workers,
 		workerDone:  make(chan struct{}),
 		pending:     make(map[*Reservation]struct{}),
+		scheduled:   make(map[uuid.UUID]struct{}),
 		idle:        idle,
 	}, nil
 }
@@ -115,6 +126,29 @@ func (e *Executor) TryReserve() (*Reservation, bool) {
 	reservation := &Reservation{executor: e}
 	e.pending[reservation] = struct{}{}
 	return reservation, true
+}
+
+func (e *Executor) ensureScheduled(ingestionID uuid.UUID) scheduleResult {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, ok := e.scheduled[ingestionID]; ok {
+		return scheduleAlreadyPresent
+	}
+	if !e.started || e.stopping || e.aborted || e.ctx.Err() != nil {
+		return scheduleUnavailable
+	}
+	select {
+	case e.slots <- struct{}{}:
+	default:
+		return scheduleFull
+	}
+	if e.active == 0 {
+		e.idle = make(chan struct{})
+	}
+	e.active++
+	e.scheduled[ingestionID] = struct{}{}
+	e.jobs <- ingestionID
+	return scheduleAccepted
 }
 
 func (r *Reservation) Commit(ingestionID uuid.UUID) bool {
@@ -179,6 +213,11 @@ func (e *Executor) commit(reservation *Reservation, ingestionID uuid.UUID) bool 
 		e.finishLocked()
 		return false
 	}
+	if _, ok := e.scheduled[ingestionID]; ok {
+		e.finishLocked()
+		return true
+	}
+	e.scheduled[ingestionID] = struct{}{}
 	// Every committed job owns one total-capacity slot, so this send cannot block.
 	e.jobs <- ingestionID
 	return true
@@ -194,9 +233,10 @@ func (e *Executor) releaseReservation(reservation *Reservation) {
 	e.finishLocked()
 }
 
-func (e *Executor) finishJob() {
+func (e *Executor) finishJob(ingestionID uuid.UUID) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	delete(e.scheduled, ingestionID)
 	e.finishLocked()
 }
 

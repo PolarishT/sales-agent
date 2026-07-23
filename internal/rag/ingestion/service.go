@@ -62,7 +62,7 @@ func (s *Service) Submit(
 	}
 	switch decision {
 	case SubmissionReuse:
-		return domain.Submission{Task: task, Deduplicated: true}, nil
+		return s.reuseSubmission(task)
 	case SubmissionConflict:
 		return domain.Submission{}, ingestionConflict()
 	case SubmissionCreate:
@@ -97,7 +97,13 @@ func (s *Service) Submit(
 	}
 	switch decision {
 	case SubmissionReuse:
-		reservation.Release()
+		if task.Status != domain.StatusQueued {
+			reservation.Release()
+			return domain.Submission{Task: task, Deduplicated: true}, nil
+		}
+		if !reservation.Commit(task.IngestionID) {
+			return domain.Submission{}, ingestionUnavailable(nil)
+		}
 		return domain.Submission{Task: task, Deduplicated: true}, nil
 	case SubmissionConflict:
 		reservation.Release()
@@ -121,6 +127,30 @@ func (s *Service) Submit(
 		return domain.Submission{}, domain.NewError(
 			domain.CodeInternalProcessing,
 			"导入创建决策无效",
+			nil,
+		)
+	}
+}
+
+func (s *Service) reuseSubmission(task domain.Task) (domain.Submission, error) {
+	if task.Status != domain.StatusQueued {
+		return domain.Submission{Task: task, Deduplicated: true}, nil
+	}
+	switch s.executor.ensureScheduled(task.IngestionID) {
+	case scheduleAccepted, scheduleAlreadyPresent:
+		return domain.Submission{Task: task, Deduplicated: true}, nil
+	case scheduleFull:
+		return domain.Submission{}, domain.NewError(
+			domain.CodeIngestionQueueFull,
+			"文档导入队列已满",
+			nil,
+		)
+	case scheduleUnavailable:
+		return domain.Submission{}, ingestionUnavailable(nil)
+	default:
+		return domain.Submission{}, domain.NewError(
+			domain.CodeInternalProcessing,
+			"导入调度结果无效",
 			nil,
 		)
 	}

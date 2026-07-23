@@ -83,7 +83,7 @@ func TestServiceSanitizesInitialRepositoryFailure(t *testing.T) {
 func TestServiceReleasesReservationAfterTransactionalReuseOrConflict(t *testing.T) {
 	for _, decision := range []SubmissionDecision{SubmissionReuse, SubmissionConflict} {
 		t.Run(decisionName(decision), func(t *testing.T) {
-			task := domain.Task{IngestionID: uuid.New(), Status: domain.StatusQueued}
+			task := domain.Task{IngestionID: uuid.New(), Status: domain.StatusSucceeded}
 			repository := &fakeRepository{
 				inspectDecision: SubmissionCreate,
 				createTask:      task,

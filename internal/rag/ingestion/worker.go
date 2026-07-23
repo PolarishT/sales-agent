@@ -23,7 +23,7 @@ func (e *Executor) worker() {
 		case ingestionID := <-e.jobs:
 			if e.ctx.Err() != nil {
 				e.persistFailureSafely(ingestionID, domain.StageQueued, interruptedFailure())
-				e.finishJob()
+				e.finishJob(ingestionID)
 				e.drainInterrupted()
 				return
 			}
@@ -52,7 +52,7 @@ func (e *Executor) executeAtBoundary(ingestionID uuid.UUID) {
 }
 
 func (e *Executor) execute(ingestionID uuid.UUID) {
-	defer e.finishJob()
+	defer e.finishJob(ingestionID)
 	startedAt := time.Now()
 	taskCtx, cancel := context.WithTimeout(e.ctx, e.taskTimeout)
 	err := runSafely(taskCtx, e.runner, ingestionID)
@@ -97,7 +97,7 @@ func (e *Executor) drainInterrupted() {
 		select {
 		case ingestionID := <-e.jobs:
 			e.persistFailureSafely(ingestionID, domain.StageQueued, interruptedFailure())
-			e.finishJob()
+			e.finishJob(ingestionID)
 		default:
 			return
 		}
