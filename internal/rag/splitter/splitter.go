@@ -20,8 +20,13 @@ type semanticUnit struct {
 	headingPath     []string
 	startLine       int
 	endLine         int
-	split           bool
 	allowTextSuffix bool
+}
+
+type blockPart struct {
+	content   string
+	startLine int
+	endLine   int
 }
 
 type chunkDraft struct {
@@ -71,25 +76,13 @@ func (s *Splitter) Split(
 		units = append(units, splitUnits...)
 	}
 
-	drafts := s.pack(units, config.ChunkSize)
+	drafts := s.pack(units, config.ChunkSize, config.ChunkOverlap)
 	chunks := make([]domain.Chunk, 0, len(drafts))
 	for index, draft := range drafts {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		finalDraft := draft
-		if index > 0 &&
-			config.ChunkOverlap > 0 &&
-			equalHeadingPath(drafts[index-1].headingPath, draft.headingPath) {
-			overlap := s.overlapUnits(drafts[index-1].units, config.ChunkOverlap)
-			if len(overlap) > 0 {
-				finalDraft.units = append(
-					append(make([]semanticUnit, 0, len(overlap)+len(draft.units)), overlap...),
-					draft.units...,
-				)
-			}
-		}
-		chunks = append(chunks, s.finalize(index, finalDraft))
+		chunks = append(chunks, s.finalize(index, draft))
 	}
 	return chunks, nil
 }
@@ -109,35 +102,45 @@ func (s *Splitter) splitBlock(
 		return []semanticUnit{base}, nil
 	}
 
-	var contents []string
+	var parts []blockPart
 	var allowTextSuffix bool
 	var err error
 	switch block.Type {
 	case domain.BlockTable:
-		contents, err = s.splitTable(ctx, block.Content, chunkSize)
+		parts, err = s.splitTable(ctx, block, chunkSize)
 	case domain.BlockList:
-		contents, err = s.splitList(ctx, block.Content, chunkSize)
+		parts, err = s.splitList(ctx, block, chunkSize)
 	case domain.BlockCode:
-		contents, err = s.splitCode(ctx, block.Content, chunkSize)
+		parts, err = s.splitCode(ctx, block, chunkSize)
 	default:
+		var contents []string
 		contents, err = s.splitText(ctx, block.Content, chunkSize)
 		allowTextSuffix = true
+		parts = make([]blockPart, 0, len(contents))
+		for _, content := range contents {
+			parts = append(parts, blockPart{
+				content:   content,
+				startLine: block.StartLine,
+				endLine:   block.EndLine,
+			})
+		}
 	}
 	if err != nil {
 		return nil, err
 	}
-	if len(contents) == 0 {
+	if len(parts) == 0 {
 		return []semanticUnit{base}, nil
 	}
 
-	result := make([]semanticUnit, 0, len(contents))
-	for _, content := range contents {
-		if strings.TrimSpace(content) == "" {
+	result := make([]semanticUnit, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part.content) == "" {
 			continue
 		}
 		unit := base
-		unit.content = content
-		unit.split = true
+		unit.content = part.content
+		unit.startLine = part.startLine
+		unit.endLine = part.endLine
 		unit.allowTextSuffix = allowTextSuffix
 		result = append(result, unit)
 	}
@@ -147,96 +150,161 @@ func (s *Splitter) splitBlock(
 	return result, nil
 }
 
-func (s *Splitter) pack(units []semanticUnit, chunkSize int) []chunkDraft {
+func (s *Splitter) pack(units []semanticUnit, chunkSize, overlapTarget int) []chunkDraft {
 	drafts := make([]chunkDraft, 0, len(units))
-	var current chunkDraft
-	flush := func() {
-		if len(current.units) == 0 {
-			return
+	for groupStart := 0; groupStart < len(units); {
+		groupEnd := groupStart + 1
+		for groupEnd < len(units) &&
+			equalHeadingPath(units[groupStart].headingPath, units[groupEnd].headingPath) {
+			groupEnd++
 		}
-		drafts = append(drafts, current)
-		current = chunkDraft{}
+		drafts = append(
+			drafts,
+			s.packHeadingGroup(units[groupStart:groupEnd], chunkSize, overlapTarget)...,
+		)
+		groupStart = groupEnd
 	}
-
-	for _, unit := range units {
-		if len(current.units) == 0 {
-			current = chunkDraft{
-				headingPath: append([]string(nil), unit.headingPath...),
-				units:       []semanticUnit{unit},
-			}
-			continue
-		}
-		if !equalHeadingPath(current.headingPath, unit.headingPath) {
-			flush()
-			current = chunkDraft{
-				headingPath: append([]string(nil), unit.headingPath...),
-				units:       []semanticUnit{unit},
-			}
-			continue
-		}
-
-		candidate := append(append([]semanticUnit(nil), current.units...), unit)
-		if s.estimator.Estimate(joinUnitContent(candidate)) <= chunkSize {
-			current.units = append(current.units, unit)
-			continue
-		}
-		flush()
-		current = chunkDraft{
-			headingPath: append([]string(nil), unit.headingPath...),
-			units:       []semanticUnit{unit},
-		}
-	}
-	flush()
 	return drafts
 }
 
-func (s *Splitter) overlapUnits(previous []semanticUnit, target int) []semanticUnit {
-	if target <= 0 || len(previous) == 0 {
+func (s *Splitter) packHeadingGroup(
+	units []semanticUnit,
+	chunkSize, overlapTarget int,
+) []chunkDraft {
+	drafts := make([]chunkDraft, 0, len(units))
+	var previous []semanticUnit
+
+	for next := 0; next < len(units); {
+		fresh := units[next]
+		overlap := s.overlapForNext(previous, fresh, chunkSize, overlapTarget)
+		current := append(append([]semanticUnit(nil), overlap...), fresh)
+		next++
+
+		for next < len(units) {
+			candidate := append(append([]semanticUnit(nil), current...), units[next])
+			if s.estimator.Estimate(joinUnitContent(candidate)) > chunkSize {
+				break
+			}
+			current = append(current, units[next])
+			next++
+		}
+
+		drafts = append(drafts, chunkDraft{
+			headingPath: append([]string(nil), fresh.headingPath...),
+			units:       current,
+		})
+		previous = current
+	}
+	return drafts
+}
+
+func (s *Splitter) overlapForNext(
+	previous []semanticUnit,
+	fresh semanticUnit,
+	chunkSize, target int,
+) []semanticUnit {
+	if target <= 0 || len(previous) == 0 ||
+		s.estimator.Estimate(fresh.content) >= chunkSize {
 		return nil
 	}
 
+	selected := s.trailingOverlap(previous, target)
+	for len(selected) > 1 &&
+		s.estimator.Estimate(joinUnitContent(append(
+			append([]semanticUnit(nil), selected...),
+			fresh,
+		))) > chunkSize {
+		selected = selected[1:]
+	}
+	if len(selected) == 0 {
+		return nil
+	}
+	if s.estimator.Estimate(joinUnitContent(append(
+		append([]semanticUnit(nil), selected...),
+		fresh,
+	))) <= chunkSize {
+		return selected
+	}
+
+	last := selected[len(selected)-1]
+	if !last.allowTextSuffix {
+		return nil
+	}
+	available := chunkSize - s.estimator.Estimate(fresh.content)
+	if available <= 0 {
+		return nil
+	}
+	suffix := s.boundedTextSuffix(last.content, min(target, available))
+	if suffix == "" {
+		return nil
+	}
+	last.content = suffix
+	if s.estimator.Estimate(joinUnitContent([]semanticUnit{last, fresh})) > chunkSize {
+		return nil
+	}
+	return []semanticUnit{last}
+}
+
+func (s *Splitter) trailingOverlap(previous []semanticUnit, target int) []semanticUnit {
 	var selected []semanticUnit
-	tokens := 0
 	for index := len(previous) - 1; index >= 0; index-- {
-		unitTokens := s.estimator.Estimate(previous[index].content)
-		if unitTokens == 0 {
-			continue
-		}
-		if tokens+unitTokens > target {
+		candidate := append([]semanticUnit{previous[index]}, selected...)
+		if s.estimator.Estimate(joinUnitContent(candidate)) > target {
 			break
 		}
-		selected = append([]semanticUnit{previous[index]}, selected...)
-		tokens += unitTokens
+		selected = candidate
 	}
 	if len(selected) > 0 {
 		return selected
 	}
 
 	last := previous[len(previous)-1]
-	if !last.split || !last.allowTextSuffix {
-		return nil
+	if last.allowTextSuffix {
+		suffix := s.boundedTextSuffix(last.content, target)
+		if suffix == "" {
+			return nil
+		}
+		last.content = suffix
+		return []semanticUnit{last}
 	}
-	suffix := s.runeSafeSuffix(last.content, target)
-	if suffix == "" {
-		return nil
-	}
-	last.content = suffix
 	return []semanticUnit{last}
 }
 
-func (s *Splitter) runeSafeSuffix(content string, target int) string {
+func (s *Splitter) boundedTextSuffix(content string, target int) string {
 	runes := []rune(content)
-	for start := len(runes) - 1; start >= 0; start-- {
-		suffix := strings.TrimSpace(string(runes[start:]))
-		if suffix == "" {
-			continue
+	if len(runes) == 0 || target <= 0 {
+		return ""
+	}
+
+	start := len(runes)
+	if weighted, ok := s.estimator.(interface {
+		runeWeight(rune) int
+		weightScale() int
+	}); ok {
+		budget := target * weighted.weightScale()
+		weight := 0
+		for start > 0 {
+			nextWeight := weighted.runeWeight(runes[start-1])
+			if weight+nextWeight > budget {
+				break
+			}
+			start--
+			weight += nextWeight
 		}
-		if start == 0 ||
-			(s.estimator.Estimate(suffix) >= target && hasOverlapSubstance(suffix)) {
-			return suffix
+	} else {
+		start = sort.Search(len(runes), func(index int) bool {
+			return s.estimator.Estimate(strings.TrimSpace(string(runes[index:]))) <= target
+		})
+		if start == len(runes) {
+			return ""
 		}
 	}
-	return ""
+
+	best := strings.TrimSpace(string(runes[start:]))
+	if !hasOverlapSubstance(best) {
+		return ""
+	}
+	return best
 }
 
 func hasOverlapSubstance(content string) bool {
@@ -249,37 +317,120 @@ func hasOverlapSubstance(content string) bool {
 }
 
 func (s *Splitter) splitText(ctx context.Context, content string, target int) ([]string, error) {
-	remaining := strings.TrimSpace(content)
-	parts := make([]string, 0, s.estimator.Estimate(content)/target+1)
-	for remaining != "" {
+	runes := []rune(strings.TrimSpace(content))
+	if weighted, ok := s.estimator.(interface {
+		runeWeight(rune) int
+		weightScale() int
+	}); ok {
+		return splitWeightedText(ctx, runes, target, weighted)
+	}
+
+	parts := make([]string, 0)
+	for start := 0; start < len(runes); {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if s.estimator.Estimate(remaining) <= target {
-			parts = append(parts, remaining)
-			break
-		}
 
-		runes := []rune(remaining)
-		firstTooLarge := sort.Search(len(runes), func(index int) bool {
-			return s.estimator.Estimate(string(runes[:index+1])) > target
-		})
-		maximum := firstTooLarge
-		if maximum == 0 {
-			maximum = 1
-		}
-		cut := preferredTextCut(runes[:maximum])
-		if cut <= 0 {
-			cut = maximum
-		}
-
-		part := strings.TrimSpace(string(runes[:cut]))
+		maximum := s.genericTextWindowEnd(runes, start, target)
+		cut := start + preferredTextCut(runes[start:maximum])
+		part := strings.TrimSpace(string(runes[start:cut]))
 		if part != "" {
 			parts = append(parts, part)
 		}
-		remaining = strings.TrimSpace(string(runes[cut:]))
+		start = skipRuneWhitespace(runes, cut)
 	}
 	return parts, nil
+}
+
+func splitWeightedText(
+	ctx context.Context,
+	runes []rune,
+	target int,
+	estimator interface {
+		runeWeight(rune) int
+		weightScale() int
+	},
+) ([]string, error) {
+	parts := make([]string, 0)
+	start, windowEnd, windowWeight := 0, 0, 0
+	budget := target * estimator.weightScale()
+
+	for start < len(runes) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if windowEnd < start {
+			windowEnd = start
+			windowWeight = 0
+		}
+		for windowEnd < len(runes) {
+			nextWeight := estimator.runeWeight(runes[windowEnd])
+			if windowEnd > start && windowWeight+nextWeight > budget {
+				break
+			}
+			windowWeight += nextWeight
+			windowEnd++
+			if windowWeight > budget {
+				break
+			}
+		}
+		if windowEnd == start {
+			windowEnd++
+		}
+
+		cut := start + preferredTextCut(runes[start:windowEnd])
+		part := strings.TrimSpace(string(runes[start:cut]))
+		if part != "" {
+			parts = append(parts, part)
+		}
+
+		nextStart := skipRuneWhitespace(runes, cut)
+		if nextStart <= windowEnd {
+			for index := start; index < nextStart; index++ {
+				windowWeight -= estimator.runeWeight(runes[index])
+			}
+		} else {
+			windowEnd = nextStart
+			windowWeight = 0
+		}
+		start = nextStart
+	}
+	return parts, nil
+}
+
+func (s *Splitter) genericTextWindowEnd(runes []rune, start, target int) int {
+	knownFit := start
+	step := 1
+	for {
+		candidateEnd := min(start+step, len(runes))
+		if s.estimator.Estimate(string(runes[start:candidateEnd])) > target {
+			if knownFit == start {
+				return start + 1
+			}
+			low, high := knownFit+1, candidateEnd
+			for low < high {
+				middle := low + (high-low)/2
+				if s.estimator.Estimate(string(runes[start:middle])) <= target {
+					low = middle + 1
+				} else {
+					high = middle
+				}
+			}
+			return low - 1
+		}
+		knownFit = candidateEnd
+		if candidateEnd == len(runes) {
+			return candidateEnd
+		}
+		step *= 2
+	}
+}
+
+func skipRuneWhitespace(runes []rune, start int) int {
+	for start < len(runes) && unicode.IsSpace(runes[start]) {
+		start++
+	}
+	return start
 }
 
 func preferredTextCut(runes []rune) int {
@@ -323,70 +474,129 @@ func lastRuneBoundary(runes []rune, match func(rune) bool) int {
 	return 0
 }
 
-func (s *Splitter) splitTable(ctx context.Context, content string, target int) ([]string, error) {
-	lines := strings.Split(content, "\n")
+func (s *Splitter) splitTable(
+	ctx context.Context,
+	block domain.MarkdownBlock,
+	target int,
+) ([]blockPart, error) {
+	lines := strings.Split(block.Content, "\n")
 	if len(lines) <= 2 {
-		return []string{content}, nil
+		return []blockPart{wholeBlockPart(block)}, nil
 	}
 	header := strings.Join(lines[:2], "\n")
-	parts := make([]string, 0, len(lines)-2)
-	var rows []string
+	parts := make([]blockPart, 0, len(lines)-2)
+	type tableRow struct {
+		content    string
+		lineOffset int
+	}
+	var rows []tableRow
 	flush := func() {
 		if len(rows) == 0 {
 			return
 		}
-		parts = append(parts, header+"\n"+strings.Join(rows, "\n"))
+		contents := make([]string, 0, len(rows))
+		for _, row := range rows {
+			contents = append(contents, row.content)
+		}
+		parts = append(parts, blockPart{
+			content:   header + "\n" + strings.Join(contents, "\n"),
+			startLine: sourceLineAt(block, 0),
+			endLine:   sourceLineAt(block, rows[len(rows)-1].lineOffset),
+		})
 		rows = nil
 	}
 
-	for _, row := range lines[2:] {
+	for index, row := range lines[2:] {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		candidateRows := append(append([]string(nil), rows...), row)
-		candidate := header + "\n" + strings.Join(candidateRows, "\n")
+		candidateContents := make([]string, 0, len(rows)+1)
+		for _, current := range rows {
+			candidateContents = append(candidateContents, current.content)
+		}
+		candidateContents = append(candidateContents, row)
+		candidate := header + "\n" + strings.Join(candidateContents, "\n")
 		if len(rows) > 0 && s.estimator.Estimate(candidate) > target {
 			flush()
 		}
-		rows = append(rows, row)
+		rows = append(rows, tableRow{content: row, lineOffset: index + 2})
 	}
 	flush()
 	return parts, nil
 }
 
-func (s *Splitter) splitList(ctx context.Context, content string, target int) ([]string, error) {
-	lines := strings.Split(content, "\n")
-	items := make([][]string, 0, len(lines))
-	for _, line := range lines {
+func (s *Splitter) splitList(
+	ctx context.Context,
+	block domain.MarkdownBlock,
+	target int,
+) ([]blockPart, error) {
+	lines := strings.Split(block.Content, "\n")
+	type listItem struct {
+		lines     []string
+		startLine int
+		endLine   int
+	}
+	items := make([]listItem, 0, len(lines))
+	for index, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if isTopLevelListItem(line) {
-			items = append(items, []string{line})
+			items = append(items, listItem{
+				lines:     []string{line},
+				startLine: sourceLineAt(block, index),
+				endLine:   sourceLineAt(block, index),
+			})
 			continue
 		}
 		if len(items) == 0 {
-			return []string{content}, nil
+			return []blockPart{wholeBlockPart(block)}, nil
 		}
-		items[len(items)-1] = append(items[len(items)-1], line)
+		items[len(items)-1].lines = append(items[len(items)-1].lines, line)
+		items[len(items)-1].endLine = sourceLineAt(block, index)
 	}
 	if len(items) <= 1 {
-		return []string{content}, nil
+		return []blockPart{wholeBlockPart(block)}, nil
+	}
+	if strings.TrimSpace(block.RawContent) != "" {
+		if spans, ok := rawListItemSpans(block, len(items)); ok {
+			for index := range items {
+				items[index].startLine = spans[index][0]
+				items[index].endLine = spans[index][1]
+			}
+		} else {
+			for index := range items {
+				items[index].startLine = block.StartLine
+				items[index].endLine = block.EndLine
+			}
+		}
 	}
 
-	parts := make([]string, 0, len(items))
-	var current []string
+	parts := make([]blockPart, 0, len(items))
+	var current []listItem
 	flush := func() {
 		if len(current) == 0 {
 			return
 		}
-		parts = append(parts, strings.Join(current, "\n"))
+		contents := make([]string, 0, len(current))
+		for _, item := range current {
+			contents = append(contents, strings.Join(item.lines, "\n"))
+		}
+		parts = append(parts, blockPart{
+			content:   strings.Join(contents, "\n"),
+			startLine: current[0].startLine,
+			endLine:   current[len(current)-1].endLine,
+		})
 		current = nil
 	}
-	for _, itemLines := range items {
-		item := strings.Join(itemLines, "\n")
-		candidate := append(append([]string(nil), current...), item)
-		if len(current) > 0 && s.estimator.Estimate(strings.Join(candidate, "\n")) > target {
+	for _, item := range items {
+		candidateContents := make([]string, 0, len(current)+1)
+		for _, existing := range current {
+			candidateContents = append(candidateContents, strings.Join(existing.lines, "\n"))
+		}
+		candidateContents = append(candidateContents, strings.Join(item.lines, "\n"))
+		if len(current) > 0 &&
+			s.estimator.Estimate(strings.Join(candidateContents, "\n")) > target {
 			flush()
 		}
 		current = append(current, item)
@@ -396,47 +606,220 @@ func (s *Splitter) splitList(ctx context.Context, content string, target int) ([
 }
 
 func isTopLevelListItem(line string) bool {
-	if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || strings.HasPrefix(line, "+ ") {
-		return true
-	}
-	if line == "-" || line == "*" || line == "+" {
-		return true
-	}
-	index := 0
-	for index < len(line) && line[index] >= '0' && line[index] <= '9' {
-		index++
-	}
-	return index > 0 &&
-		index < len(line) &&
-		line[index] == '.' &&
-		(index+1 == len(line) || line[index+1] == ' ')
+	return isListItemMarker(line)
 }
 
-func (s *Splitter) splitCode(ctx context.Context, content string, target int) ([]string, error) {
-	lines := strings.Split(content, "\n")
-	parts := make([]string, 0, len(lines))
-	var current []string
+func isListItemMarker(line string) bool {
+	if line == "" {
+		return false
+	}
+	markerEnd := 0
+	switch line[0] {
+	case '-', '*', '+':
+		markerEnd = 1
+	default:
+		for markerEnd < len(line) &&
+			markerEnd < 9 &&
+			line[markerEnd] >= '0' &&
+			line[markerEnd] <= '9' {
+			markerEnd++
+		}
+		if markerEnd == 0 ||
+			markerEnd >= len(line) ||
+			(line[markerEnd] != '.' && line[markerEnd] != ')') {
+			return false
+		}
+		markerEnd++
+	}
+	return markerEnd == len(line) ||
+		line[markerEnd] == ' ' ||
+		line[markerEnd] == '\t'
+}
+
+func rawListItemSpans(block domain.MarkdownBlock, want int) ([][2]int, bool) {
+	if strings.TrimSpace(block.RawContent) == "" || want <= 0 {
+		return nil, false
+	}
+	rawLines := strings.Split(block.RawContent, "\n")
+	type marker struct {
+		offset int
+		indent int
+	}
+	markers := make([]marker, 0, want)
+	minimumIndent := -1
+	for offset, line := range rawLines {
+		indent, content := sourceIndent(line)
+		if !isListItemMarker(content) {
+			continue
+		}
+		markers = append(markers, marker{offset: offset, indent: indent})
+		if minimumIndent < 0 || indent < minimumIndent {
+			minimumIndent = indent
+		}
+	}
+
+	starts := make([]int, 0, want)
+	for _, current := range markers {
+		if current.indent == minimumIndent {
+			starts = append(starts, current.offset)
+		}
+	}
+	if len(starts) != want {
+		return nil, false
+	}
+
+	spans := make([][2]int, 0, want)
+	for index, startOffset := range starts {
+		endOffset := len(rawLines) - 1
+		if index+1 < len(starts) {
+			endOffset = starts[index+1] - 1
+		}
+		for endOffset > startOffset && strings.TrimSpace(rawLines[endOffset]) == "" {
+			endOffset--
+		}
+		spans = append(spans, [2]int{
+			sourceLineAt(block, startOffset),
+			sourceLineAt(block, endOffset),
+		})
+	}
+	return spans, true
+}
+
+func sourceIndent(line string) (int, string) {
+	index, indent := 0, 0
+	for index < len(line) {
+		switch line[index] {
+		case ' ':
+			indent++
+			index++
+		case '\t':
+			indent += 4
+			index++
+		default:
+			return indent, line[index:]
+		}
+	}
+	return indent, ""
+}
+
+func (s *Splitter) splitCode(
+	ctx context.Context,
+	block domain.MarkdownBlock,
+	target int,
+) ([]blockPart, error) {
+	lines := strings.Split(block.Content, "\n")
+	contentStart, contentEnd := codeContentSourceRange(block)
+	type codeLine struct {
+		content    string
+		sourceLine int
+	}
+	parts := make([]blockPart, 0, len(lines))
+	var current []codeLine
 	flush := func() {
 		if len(current) == 0 {
 			return
 		}
-		parts = append(parts, strings.Join(current, "\n"))
+		contents := make([]string, 0, len(current))
+		for _, line := range current {
+			contents = append(contents, line.content)
+		}
+		parts = append(parts, blockPart{
+			content:   strings.Join(contents, "\n"),
+			startLine: current[0].sourceLine,
+			endLine:   current[len(current)-1].sourceLine,
+		})
 		current = nil
 	}
 
-	for _, line := range lines {
+	for index, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		candidate := append(append([]string(nil), current...), line)
-		if strings.TrimSpace(strings.Join(current, "\n")) != "" &&
-			s.estimator.Estimate(strings.Join(candidate, "\n")) > target {
+		sourceLine := contentStart + index
+		if contentEnd >= contentStart && sourceLine > contentEnd {
+			sourceLine = contentEnd
+		}
+		candidateContents := make([]string, 0, len(current)+1)
+		for _, existing := range current {
+			candidateContents = append(candidateContents, existing.content)
+		}
+		candidateContents = append(candidateContents, line)
+		if len(current) > 0 &&
+			strings.TrimSpace(strings.Join(candidateContents[:len(candidateContents)-1], "\n")) != "" &&
+			s.estimator.Estimate(strings.Join(candidateContents, "\n")) > target {
 			flush()
 		}
-		current = append(current, line)
+		current = append(current, codeLine{content: line, sourceLine: sourceLine})
 	}
 	flush()
 	return parts, nil
+}
+
+func codeContentSourceRange(block domain.MarkdownBlock) (int, int) {
+	startLine, endLine := block.StartLine, block.EndLine
+	rawLines := strings.Split(block.RawContent, "\n")
+	if len(rawLines) < 2 {
+		return startLine, endLine
+	}
+	marker, length, ok := codeFence(rawLines[0])
+	if !ok {
+		return startLine, endLine
+	}
+	if startLine > 0 {
+		startLine++
+	}
+	if endLine > 0 && isClosingCodeFence(rawLines[len(rawLines)-1], marker, length) {
+		endLine--
+	}
+	return startLine, endLine
+}
+
+func codeFence(line string) (byte, int, bool) {
+	index := 0
+	for index < len(line) && index < 3 && line[index] == ' ' {
+		index++
+	}
+	if index >= len(line) || (line[index] != '`' && line[index] != '~') {
+		return 0, 0, false
+	}
+	marker := line[index]
+	start := index
+	for index < len(line) && line[index] == marker {
+		index++
+	}
+	length := index - start
+	return marker, length, length >= 3
+}
+
+func isClosingCodeFence(line string, marker byte, openingLength int) bool {
+	index := 0
+	for index < len(line) && index < 3 && line[index] == ' ' {
+		index++
+	}
+	start := index
+	for index < len(line) && line[index] == marker {
+		index++
+	}
+	return index-start >= openingLength && strings.TrimSpace(line[index:]) == ""
+}
+
+func wholeBlockPart(block domain.MarkdownBlock) blockPart {
+	return blockPart{
+		content:   block.Content,
+		startLine: block.StartLine,
+		endLine:   block.EndLine,
+	}
+}
+
+func sourceLineAt(block domain.MarkdownBlock, offset int) int {
+	if block.StartLine <= 0 {
+		return block.StartLine
+	}
+	line := block.StartLine + offset
+	if block.EndLine >= block.StartLine && line > block.EndLine {
+		return block.EndLine
+	}
+	return line
 }
 
 func (s *Splitter) finalize(index int, draft chunkDraft) domain.Chunk {
