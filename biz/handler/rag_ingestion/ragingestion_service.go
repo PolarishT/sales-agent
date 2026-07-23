@@ -4,25 +4,211 @@ package rag_ingestion
 
 import (
 	"context"
+	"errors"
+	"io"
+	"mime/multipart"
+	"time"
 
 	rag_ingestion "github.com/PolarishT/sales-agent/biz/model/rag_ingestion"
 	httpapi "github.com/PolarishT/sales-agent/internal/http"
+	"github.com/PolarishT/sales-agent/internal/rag/domain"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/google/uuid"
 )
-
-// Keep the generated request model import while this temporary protocol adapter
-// does not yet bind requests to an application service.
-var _ = rag_ingestion.CreateIngestionRequest{}
 
 // CreateIngestion .
 // @router /api/v1/rag/ingestions [POST]
 func CreateIngestion(ctx context.Context, requestContext *app.RequestContext) {
-	httpapi.WriteError(requestContext, consts.StatusServiceUnavailable, "unavailable", "INGESTION_UNAVAILABLE", "文档导入服务暂不可用")
+	dependencies, ok := httpapi.DependenciesFrom(requestContext)
+	if !ok {
+		writeDomainError(requestContext, domain.NewError(
+			domain.CodeIngestionUnavailable,
+			"文档导入服务暂不可用",
+			nil,
+		))
+		return
+	}
+
+	var request rag_ingestion.CreateIngestionRequest
+	if err := requestContext.BindAndValidate(&request); err != nil {
+		httpapi.WriteError(
+			requestContext,
+			consts.StatusBadRequest,
+			"invalid_request",
+			"DOCUMENT_KEY_REQUIRED",
+			"document_key 不能为空",
+		)
+		return
+	}
+
+	form, err := requestContext.MultipartForm()
+	if err != nil || !hasExactlyOneUpload(form) {
+		writeDomainError(requestContext, domain.NewError(
+			domain.CodeFileRequired,
+			"必须上传且只能上传一个 file 文件",
+			nil,
+		))
+		return
+	}
+	header := form.File["file"][0]
+	file, err := header.Open()
+	if err != nil {
+		writeInternalError(requestContext)
+		return
+	}
+
+	if dependencies.IngestionService == nil || dependencies.MaxUploadBytes <= 0 {
+		_ = file.Close()
+		writeDomainError(requestContext, domain.NewError(
+			domain.CodeIngestionUnavailable,
+			"文档导入服务暂不可用",
+			nil,
+		))
+		return
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(file, dependencies.MaxUploadBytes+1))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
+		writeInternalError(requestContext)
+		return
+	}
+
+	submission, err := dependencies.IngestionService.Submit(
+		ctx,
+		request.DocumentKey,
+		header.Filename,
+		raw,
+	)
+	if err != nil {
+		writeDomainError(requestContext, err)
+		return
+	}
+
+	statusCode := consts.StatusAccepted
+	if submission.Deduplicated && submission.Task.Status == domain.StatusSucceeded {
+		statusCode = consts.StatusOK
+	}
+	requestContext.JSON(statusCode, &rag_ingestion.CreateIngestionResponse{
+		IngestionID:  submission.Task.IngestionID.String(),
+		DocumentKey:  submission.Task.DocumentKey,
+		Status:       string(submission.Task.Status),
+		Stage:        string(submission.Task.Stage),
+		Deduplicated: submission.Deduplicated,
+		CreatedAt:    submission.Task.CreatedAt.Format(time.RFC3339Nano),
+	})
 }
 
 // GetIngestion .
 // @router /api/v1/rag/ingestions/:ingestion_id [GET]
 func GetIngestion(ctx context.Context, requestContext *app.RequestContext) {
-	httpapi.WriteError(requestContext, consts.StatusServiceUnavailable, "unavailable", "INGESTION_UNAVAILABLE", "文档导入服务暂不可用")
+	dependencies, ok := httpapi.DependenciesFrom(requestContext)
+	if !ok || dependencies.IngestionService == nil {
+		writeDomainError(requestContext, domain.NewError(
+			domain.CodeIngestionUnavailable,
+			"文档导入服务暂不可用",
+			nil,
+		))
+		return
+	}
+
+	var request rag_ingestion.GetIngestionRequest
+	if err := requestContext.BindAndValidate(&request); err != nil {
+		writeInvalidIngestionID(requestContext)
+		return
+	}
+	ingestionID, err := uuid.Parse(request.IngestionID)
+	if err != nil {
+		writeInvalidIngestionID(requestContext)
+		return
+	}
+
+	task, err := dependencies.IngestionService.Get(ctx, ingestionID)
+	if err != nil {
+		writeDomainError(requestContext, err)
+		return
+	}
+	response := &rag_ingestion.GetIngestionResponse{
+		IngestionID:        task.IngestionID.String(),
+		DocumentKey:        task.DocumentKey,
+		Status:             string(task.Status),
+		Stage:              string(task.Stage),
+		SourceBytes:        task.SourceBytes,
+		ChunkCount:         int32(task.ChunkCount),
+		EmbeddedChunkCount: int32(task.EmbeddedChunkCount),
+		CreatedAt:          task.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:          task.UpdatedAt.Format(time.RFC3339Nano),
+	}
+	if task.CompletedAt != nil {
+		completedAt := task.CompletedAt.Format(time.RFC3339Nano)
+		response.CompletedAt = &completedAt
+	}
+	if task.Failure != nil {
+		response.Failure = &rag_ingestion.IngestionFailure{
+			Code:    task.Failure.Code,
+			Message: task.Failure.Message,
+		}
+	}
+	requestContext.JSON(consts.StatusOK, response)
+}
+
+func hasExactlyOneUpload(form *multipart.Form) bool {
+	return form != nil && len(form.File) == 1 && len(form.File["file"]) == 1
+}
+
+func writeInvalidIngestionID(requestContext *app.RequestContext) {
+	writeDomainError(requestContext, domain.NewError(
+		domain.CodeInvalidIngestionID,
+		"ingestion_id 格式无效",
+		nil,
+	))
+}
+
+func writeInternalError(requestContext *app.RequestContext) {
+	httpapi.WriteError(
+		requestContext,
+		consts.StatusInternalServerError,
+		"error",
+		"INTERNAL_ERROR",
+		"服务内部错误",
+	)
+}
+
+func writeDomainError(requestContext *app.RequestContext, err error) {
+	var stable *domain.Error
+	if !errors.As(err, &stable) {
+		writeInternalError(requestContext)
+		return
+	}
+
+	statusCode, status := domainErrorStatus(stable.Code)
+	httpapi.WriteError(
+		requestContext,
+		statusCode,
+		status,
+		stable.Code,
+		stable.Message,
+	)
+}
+
+func domainErrorStatus(code string) (int, string) {
+	switch code {
+	case domain.CodeInvalidDocumentKey,
+		domain.CodeFileRequired,
+		domain.CodeUnsupportedFileType,
+		domain.CodeInvalidMarkdownEncoding,
+		domain.CodeEmptyDocument,
+		domain.CodeInvalidIngestionID:
+		return consts.StatusBadRequest, "invalid_request"
+	case domain.CodeFileTooLarge:
+		return consts.StatusRequestEntityTooLarge, "invalid_request"
+	case domain.CodeIngestionInProgress:
+		return consts.StatusConflict, "conflict"
+	case domain.CodeIngestionNotFound:
+		return consts.StatusNotFound, "not_found"
+	case domain.CodeIngestionQueueFull, domain.CodeIngestionUnavailable:
+		return consts.StatusServiceUnavailable, "unavailable"
+	default:
+		return consts.StatusInternalServerError, "error"
+	}
 }

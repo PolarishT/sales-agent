@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/PolarishT/sales-agent/internal/agent"
+	"github.com/PolarishT/sales-agent/internal/rag/ingestion"
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
@@ -21,6 +22,8 @@ type AgentRunner interface {
 type Dependencies struct {
 	HealthChecker    HealthChecker
 	AgentRunner      AgentRunner
+	IngestionService ingestion.API
+	MaxUploadBytes   int64
 	ReadinessTimeout time.Duration
 }
 
