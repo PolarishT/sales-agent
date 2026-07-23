@@ -199,6 +199,9 @@ func (e *Embedder) send(
 	}
 	defer response.Body.Close()
 
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		drainResponseBody(response.Body)
+	}
 	if response.StatusCode == http.StatusTooManyRequests ||
 		response.StatusCode >= 500 && response.StatusCode <= 599 {
 		return nil, true, embeddingFailure(statusError(response.StatusCode))
@@ -243,6 +246,10 @@ func (e *Embedder) send(
 		return nil, false, err
 	}
 	return vectors, false, nil
+}
+
+func drainResponseBody(body io.Reader) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxResponseBytes+1))
 }
 
 func validateResponse(items []responseItem, inputCount, dimensions int) ([][]float64, error) {

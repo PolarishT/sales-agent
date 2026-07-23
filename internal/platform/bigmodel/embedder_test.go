@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"reflect"
 	"strings"
 	"sync"
@@ -296,6 +297,39 @@ func TestEmbedStringsRetries429ThenSucceeds(t *testing.T) {
 	}
 	if len(got) != 1 || attempts.Load() != 2 {
 		t.Fatalf("result count/attempts = %d/%d", len(got), attempts.Load())
+	}
+}
+
+func TestEmbedStringsDrainsRetryResponseForConnectionReuse(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		if attempts.Add(1) == 1 {
+			writer.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(writer, "bounded supplier error")
+			return
+		}
+		writeResponse(t, writer, []responseItem{
+			{Index: 0, Object: "embedding", Embedding: vector(1)},
+		})
+	}))
+	defer server.Close()
+
+	var connections []httptrace.GotConnInfo
+	ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			connections = append(connections, info)
+		},
+	})
+	embedder := newTestEmbedder(t, server.URL, nil)
+	embedder.sleep = immediateSleep
+	if _, err := embedder.EmbedStrings(ctx, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(connections) != 2 {
+		t.Fatalf("connection observations = %d, want 2", len(connections))
+	}
+	if connections[0].Reused || !connections[1].Reused {
+		t.Fatalf("connection reuse flags = [%t %t], want [false true]", connections[0].Reused, connections[1].Reused)
 	}
 }
 
