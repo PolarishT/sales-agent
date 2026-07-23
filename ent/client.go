@@ -14,6 +14,10 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/PolarishT/sales-agent/ent/ragchunk"
+	"github.com/PolarishT/sales-agent/ent/ragdocument"
+	"github.com/PolarishT/sales-agent/ent/ragdocumentversion"
 	"github.com/PolarishT/sales-agent/ent/raguser"
 )
 
@@ -22,6 +26,12 @@ type Client struct {
 	config
 	// Schema is the client for creating, migrating and dropping schema.
 	Schema *migrate.Schema
+	// RagChunk is the client for interacting with the RagChunk builders.
+	RagChunk *RagChunkClient
+	// RagDocument is the client for interacting with the RagDocument builders.
+	RagDocument *RagDocumentClient
+	// RagDocumentVersion is the client for interacting with the RagDocumentVersion builders.
+	RagDocumentVersion *RagDocumentVersionClient
 	// RagUser is the client for interacting with the RagUser builders.
 	RagUser *RagUserClient
 }
@@ -35,6 +45,9 @@ func NewClient(opts ...Option) *Client {
 
 func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
+	c.RagChunk = NewRagChunkClient(c.config)
+	c.RagDocument = NewRagDocumentClient(c.config)
+	c.RagDocumentVersion = NewRagDocumentVersionClient(c.config)
 	c.RagUser = NewRagUserClient(c.config)
 }
 
@@ -126,9 +139,12 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:     ctx,
-		config:  cfg,
-		RagUser: NewRagUserClient(cfg),
+		ctx:                ctx,
+		config:             cfg,
+		RagChunk:           NewRagChunkClient(cfg),
+		RagDocument:        NewRagDocumentClient(cfg),
+		RagDocumentVersion: NewRagDocumentVersionClient(cfg),
+		RagUser:            NewRagUserClient(cfg),
 	}, nil
 }
 
@@ -146,16 +162,19 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:     ctx,
-		config:  cfg,
-		RagUser: NewRagUserClient(cfg),
+		ctx:                ctx,
+		config:             cfg,
+		RagChunk:           NewRagChunkClient(cfg),
+		RagDocument:        NewRagDocumentClient(cfg),
+		RagDocumentVersion: NewRagDocumentVersionClient(cfg),
+		RagUser:            NewRagUserClient(cfg),
 	}, nil
 }
 
 // Debug returns a new debug-client. It's used to get verbose logging on specific operations.
 //
 //	client.Debug().
-//		RagUser.
+//		RagChunk.
 //		Query().
 //		Count(ctx)
 func (c *Client) Debug() *Client {
@@ -177,22 +196,497 @@ func (c *Client) Close() error {
 // Use adds the mutation hooks to all the entity clients.
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
+	c.RagChunk.Use(hooks...)
+	c.RagDocument.Use(hooks...)
+	c.RagDocumentVersion.Use(hooks...)
 	c.RagUser.Use(hooks...)
 }
 
 // Intercept adds the query interceptors to all the entity clients.
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
+	c.RagChunk.Intercept(interceptors...)
+	c.RagDocument.Intercept(interceptors...)
+	c.RagDocumentVersion.Intercept(interceptors...)
 	c.RagUser.Intercept(interceptors...)
 }
 
 // Mutate implements the ent.Mutator interface.
 func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 	switch m := m.(type) {
+	case *RagChunkMutation:
+		return c.RagChunk.mutate(ctx, m)
+	case *RagDocumentMutation:
+		return c.RagDocument.mutate(ctx, m)
+	case *RagDocumentVersionMutation:
+		return c.RagDocumentVersion.mutate(ctx, m)
 	case *RagUserMutation:
 		return c.RagUser.mutate(ctx, m)
 	default:
 		return nil, fmt.Errorf("ent: unknown mutation type %T", m)
+	}
+}
+
+// RagChunkClient is a client for the RagChunk schema.
+type RagChunkClient struct {
+	config
+}
+
+// NewRagChunkClient returns a client for the RagChunk from the given config.
+func NewRagChunkClient(c config) *RagChunkClient {
+	return &RagChunkClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `ragchunk.Hooks(f(g(h())))`.
+func (c *RagChunkClient) Use(hooks ...Hook) {
+	c.hooks.RagChunk = append(c.hooks.RagChunk, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `ragchunk.Intercept(f(g(h())))`.
+func (c *RagChunkClient) Intercept(interceptors ...Interceptor) {
+	c.inters.RagChunk = append(c.inters.RagChunk, interceptors...)
+}
+
+// Create returns a builder for creating a RagChunk entity.
+func (c *RagChunkClient) Create() *RagChunkCreate {
+	mutation := newRagChunkMutation(c.config, OpCreate)
+	return &RagChunkCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of RagChunk entities.
+func (c *RagChunkClient) CreateBulk(builders ...*RagChunkCreate) *RagChunkCreateBulk {
+	return &RagChunkCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *RagChunkClient) MapCreateBulk(slice any, setFunc func(*RagChunkCreate, int)) *RagChunkCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &RagChunkCreateBulk{err: fmt.Errorf("calling to RagChunkClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*RagChunkCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &RagChunkCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for RagChunk.
+func (c *RagChunkClient) Update() *RagChunkUpdate {
+	mutation := newRagChunkMutation(c.config, OpUpdate)
+	return &RagChunkUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *RagChunkClient) UpdateOne(_m *RagChunk) *RagChunkUpdateOne {
+	mutation := newRagChunkMutation(c.config, OpUpdateOne, withRagChunk(_m))
+	return &RagChunkUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *RagChunkClient) UpdateOneID(id int64) *RagChunkUpdateOne {
+	mutation := newRagChunkMutation(c.config, OpUpdateOne, withRagChunkID(id))
+	return &RagChunkUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for RagChunk.
+func (c *RagChunkClient) Delete() *RagChunkDelete {
+	mutation := newRagChunkMutation(c.config, OpDelete)
+	return &RagChunkDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *RagChunkClient) DeleteOne(_m *RagChunk) *RagChunkDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *RagChunkClient) DeleteOneID(id int64) *RagChunkDeleteOne {
+	builder := c.Delete().Where(ragchunk.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &RagChunkDeleteOne{builder}
+}
+
+// Query returns a query builder for RagChunk.
+func (c *RagChunkClient) Query() *RagChunkQuery {
+	return &RagChunkQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeRagChunk},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a RagChunk entity by its id.
+func (c *RagChunkClient) Get(ctx context.Context, id int64) (*RagChunk, error) {
+	return c.Query().Where(ragchunk.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *RagChunkClient) GetX(ctx context.Context, id int64) *RagChunk {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryDocumentVersion queries the document_version edge of a RagChunk.
+func (c *RagChunkClient) QueryDocumentVersion(_m *RagChunk) *RagDocumentVersionQuery {
+	query := (&RagDocumentVersionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(ragchunk.Table, ragchunk.FieldID, id),
+			sqlgraph.To(ragdocumentversion.Table, ragdocumentversion.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, ragchunk.DocumentVersionTable, ragchunk.DocumentVersionColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *RagChunkClient) Hooks() []Hook {
+	return c.hooks.RagChunk
+}
+
+// Interceptors returns the client interceptors.
+func (c *RagChunkClient) Interceptors() []Interceptor {
+	return c.inters.RagChunk
+}
+
+func (c *RagChunkClient) mutate(ctx context.Context, m *RagChunkMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&RagChunkCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&RagChunkUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&RagChunkUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&RagChunkDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown RagChunk mutation op: %q", m.Op())
+	}
+}
+
+// RagDocumentClient is a client for the RagDocument schema.
+type RagDocumentClient struct {
+	config
+}
+
+// NewRagDocumentClient returns a client for the RagDocument from the given config.
+func NewRagDocumentClient(c config) *RagDocumentClient {
+	return &RagDocumentClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `ragdocument.Hooks(f(g(h())))`.
+func (c *RagDocumentClient) Use(hooks ...Hook) {
+	c.hooks.RagDocument = append(c.hooks.RagDocument, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `ragdocument.Intercept(f(g(h())))`.
+func (c *RagDocumentClient) Intercept(interceptors ...Interceptor) {
+	c.inters.RagDocument = append(c.inters.RagDocument, interceptors...)
+}
+
+// Create returns a builder for creating a RagDocument entity.
+func (c *RagDocumentClient) Create() *RagDocumentCreate {
+	mutation := newRagDocumentMutation(c.config, OpCreate)
+	return &RagDocumentCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of RagDocument entities.
+func (c *RagDocumentClient) CreateBulk(builders ...*RagDocumentCreate) *RagDocumentCreateBulk {
+	return &RagDocumentCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *RagDocumentClient) MapCreateBulk(slice any, setFunc func(*RagDocumentCreate, int)) *RagDocumentCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &RagDocumentCreateBulk{err: fmt.Errorf("calling to RagDocumentClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*RagDocumentCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &RagDocumentCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for RagDocument.
+func (c *RagDocumentClient) Update() *RagDocumentUpdate {
+	mutation := newRagDocumentMutation(c.config, OpUpdate)
+	return &RagDocumentUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *RagDocumentClient) UpdateOne(_m *RagDocument) *RagDocumentUpdateOne {
+	mutation := newRagDocumentMutation(c.config, OpUpdateOne, withRagDocument(_m))
+	return &RagDocumentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *RagDocumentClient) UpdateOneID(id int64) *RagDocumentUpdateOne {
+	mutation := newRagDocumentMutation(c.config, OpUpdateOne, withRagDocumentID(id))
+	return &RagDocumentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for RagDocument.
+func (c *RagDocumentClient) Delete() *RagDocumentDelete {
+	mutation := newRagDocumentMutation(c.config, OpDelete)
+	return &RagDocumentDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *RagDocumentClient) DeleteOne(_m *RagDocument) *RagDocumentDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *RagDocumentClient) DeleteOneID(id int64) *RagDocumentDeleteOne {
+	builder := c.Delete().Where(ragdocument.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &RagDocumentDeleteOne{builder}
+}
+
+// Query returns a query builder for RagDocument.
+func (c *RagDocumentClient) Query() *RagDocumentQuery {
+	return &RagDocumentQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeRagDocument},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a RagDocument entity by its id.
+func (c *RagDocumentClient) Get(ctx context.Context, id int64) (*RagDocument, error) {
+	return c.Query().Where(ragdocument.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *RagDocumentClient) GetX(ctx context.Context, id int64) *RagDocument {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryVersions queries the versions edge of a RagDocument.
+func (c *RagDocumentClient) QueryVersions(_m *RagDocument) *RagDocumentVersionQuery {
+	query := (&RagDocumentVersionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(ragdocument.Table, ragdocument.FieldID, id),
+			sqlgraph.To(ragdocumentversion.Table, ragdocumentversion.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ragdocument.VersionsTable, ragdocument.VersionsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *RagDocumentClient) Hooks() []Hook {
+	return c.hooks.RagDocument
+}
+
+// Interceptors returns the client interceptors.
+func (c *RagDocumentClient) Interceptors() []Interceptor {
+	return c.inters.RagDocument
+}
+
+func (c *RagDocumentClient) mutate(ctx context.Context, m *RagDocumentMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&RagDocumentCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&RagDocumentUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&RagDocumentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&RagDocumentDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown RagDocument mutation op: %q", m.Op())
+	}
+}
+
+// RagDocumentVersionClient is a client for the RagDocumentVersion schema.
+type RagDocumentVersionClient struct {
+	config
+}
+
+// NewRagDocumentVersionClient returns a client for the RagDocumentVersion from the given config.
+func NewRagDocumentVersionClient(c config) *RagDocumentVersionClient {
+	return &RagDocumentVersionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `ragdocumentversion.Hooks(f(g(h())))`.
+func (c *RagDocumentVersionClient) Use(hooks ...Hook) {
+	c.hooks.RagDocumentVersion = append(c.hooks.RagDocumentVersion, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `ragdocumentversion.Intercept(f(g(h())))`.
+func (c *RagDocumentVersionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.RagDocumentVersion = append(c.inters.RagDocumentVersion, interceptors...)
+}
+
+// Create returns a builder for creating a RagDocumentVersion entity.
+func (c *RagDocumentVersionClient) Create() *RagDocumentVersionCreate {
+	mutation := newRagDocumentVersionMutation(c.config, OpCreate)
+	return &RagDocumentVersionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of RagDocumentVersion entities.
+func (c *RagDocumentVersionClient) CreateBulk(builders ...*RagDocumentVersionCreate) *RagDocumentVersionCreateBulk {
+	return &RagDocumentVersionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *RagDocumentVersionClient) MapCreateBulk(slice any, setFunc func(*RagDocumentVersionCreate, int)) *RagDocumentVersionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &RagDocumentVersionCreateBulk{err: fmt.Errorf("calling to RagDocumentVersionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*RagDocumentVersionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &RagDocumentVersionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for RagDocumentVersion.
+func (c *RagDocumentVersionClient) Update() *RagDocumentVersionUpdate {
+	mutation := newRagDocumentVersionMutation(c.config, OpUpdate)
+	return &RagDocumentVersionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *RagDocumentVersionClient) UpdateOne(_m *RagDocumentVersion) *RagDocumentVersionUpdateOne {
+	mutation := newRagDocumentVersionMutation(c.config, OpUpdateOne, withRagDocumentVersion(_m))
+	return &RagDocumentVersionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *RagDocumentVersionClient) UpdateOneID(id int64) *RagDocumentVersionUpdateOne {
+	mutation := newRagDocumentVersionMutation(c.config, OpUpdateOne, withRagDocumentVersionID(id))
+	return &RagDocumentVersionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for RagDocumentVersion.
+func (c *RagDocumentVersionClient) Delete() *RagDocumentVersionDelete {
+	mutation := newRagDocumentVersionMutation(c.config, OpDelete)
+	return &RagDocumentVersionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *RagDocumentVersionClient) DeleteOne(_m *RagDocumentVersion) *RagDocumentVersionDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *RagDocumentVersionClient) DeleteOneID(id int64) *RagDocumentVersionDeleteOne {
+	builder := c.Delete().Where(ragdocumentversion.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &RagDocumentVersionDeleteOne{builder}
+}
+
+// Query returns a query builder for RagDocumentVersion.
+func (c *RagDocumentVersionClient) Query() *RagDocumentVersionQuery {
+	return &RagDocumentVersionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeRagDocumentVersion},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a RagDocumentVersion entity by its id.
+func (c *RagDocumentVersionClient) Get(ctx context.Context, id int64) (*RagDocumentVersion, error) {
+	return c.Query().Where(ragdocumentversion.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *RagDocumentVersionClient) GetX(ctx context.Context, id int64) *RagDocumentVersion {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryDocument queries the document edge of a RagDocumentVersion.
+func (c *RagDocumentVersionClient) QueryDocument(_m *RagDocumentVersion) *RagDocumentQuery {
+	query := (&RagDocumentClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(ragdocumentversion.Table, ragdocumentversion.FieldID, id),
+			sqlgraph.To(ragdocument.Table, ragdocument.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, ragdocumentversion.DocumentTable, ragdocumentversion.DocumentColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryChunks queries the chunks edge of a RagDocumentVersion.
+func (c *RagDocumentVersionClient) QueryChunks(_m *RagDocumentVersion) *RagChunkQuery {
+	query := (&RagChunkClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(ragdocumentversion.Table, ragdocumentversion.FieldID, id),
+			sqlgraph.To(ragchunk.Table, ragchunk.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ragdocumentversion.ChunksTable, ragdocumentversion.ChunksColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *RagDocumentVersionClient) Hooks() []Hook {
+	return c.hooks.RagDocumentVersion
+}
+
+// Interceptors returns the client interceptors.
+func (c *RagDocumentVersionClient) Interceptors() []Interceptor {
+	return c.inters.RagDocumentVersion
+}
+
+func (c *RagDocumentVersionClient) mutate(ctx context.Context, m *RagDocumentVersionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&RagDocumentVersionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&RagDocumentVersionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&RagDocumentVersionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&RagDocumentVersionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown RagDocumentVersion mutation op: %q", m.Op())
 	}
 }
 
@@ -332,9 +826,9 @@ func (c *RagUserClient) mutate(ctx context.Context, m *RagUserMutation) (Value, 
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		RagUser []ent.Hook
+		RagChunk, RagDocument, RagDocumentVersion, RagUser []ent.Hook
 	}
 	inters struct {
-		RagUser []ent.Interceptor
+		RagChunk, RagDocument, RagDocumentVersion, RagUser []ent.Interceptor
 	}
 )

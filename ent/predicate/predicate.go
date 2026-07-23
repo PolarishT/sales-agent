@@ -6,5 +6,14 @@ import (
 	"entgo.io/ent/dialect/sql"
 )
 
+// RagChunk is the predicate function for ragchunk builders.
+type RagChunk func(*sql.Selector)
+
+// RagDocument is the predicate function for ragdocument builders.
+type RagDocument func(*sql.Selector)
+
+// RagDocumentVersion is the predicate function for ragdocumentversion builders.
+type RagDocumentVersion func(*sql.Selector)
+
 // RagUser is the predicate function for raguser builders.
 type RagUser func(*sql.Selector)

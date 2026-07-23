@@ -5,6 +5,9 @@ package ent
 import (
 	"time"
 
+	"github.com/PolarishT/sales-agent/ent/ragchunk"
+	"github.com/PolarishT/sales-agent/ent/ragdocument"
+	"github.com/PolarishT/sales-agent/ent/ragdocumentversion"
 	"github.com/PolarishT/sales-agent/ent/raguser"
 	"github.com/PolarishT/sales-agent/ent/schema"
 )
@@ -13,6 +16,76 @@ import (
 // (default values, validators, hooks and policies) and stitches it
 // to their package variables.
 func init() {
+	ragchunkFields := schema.RagChunk{}.Fields()
+	_ = ragchunkFields
+	// ragchunkDescHeadingPath is the schema descriptor for heading_path field.
+	ragchunkDescHeadingPath := ragchunkFields[5].Descriptor()
+	// ragchunk.DefaultHeadingPath holds the default value on creation for the heading_path field.
+	ragchunk.DefaultHeadingPath = ragchunkDescHeadingPath.Default.([]string)
+	// ragchunkDescCreatedAt is the schema descriptor for created_at field.
+	ragchunkDescCreatedAt := ragchunkFields[11].Descriptor()
+	// ragchunk.DefaultCreatedAt holds the default value on creation for the created_at field.
+	ragchunk.DefaultCreatedAt = ragchunkDescCreatedAt.Default.(func() time.Time)
+	ragdocumentFields := schema.RagDocument{}.Fields()
+	_ = ragdocumentFields
+	// ragdocumentDescDocumentKey is the schema descriptor for document_key field.
+	ragdocumentDescDocumentKey := ragdocumentFields[1].Descriptor()
+	// ragdocument.DocumentKeyValidator is a validator for the "document_key" field. It is called by the builders before save.
+	ragdocument.DocumentKeyValidator = ragdocumentDescDocumentKey.Validators[0].(func(string) error)
+	// ragdocumentDescCurrentVersion is the schema descriptor for current_version field.
+	ragdocumentDescCurrentVersion := ragdocumentFields[2].Descriptor()
+	// ragdocument.DefaultCurrentVersion holds the default value on creation for the current_version field.
+	ragdocument.DefaultCurrentVersion = ragdocumentDescCurrentVersion.Default.(int)
+	// ragdocumentDescCreatedAt is the schema descriptor for created_at field.
+	ragdocumentDescCreatedAt := ragdocumentFields[3].Descriptor()
+	// ragdocument.DefaultCreatedAt holds the default value on creation for the created_at field.
+	ragdocument.DefaultCreatedAt = ragdocumentDescCreatedAt.Default.(func() time.Time)
+	// ragdocumentDescUpdatedAt is the schema descriptor for updated_at field.
+	ragdocumentDescUpdatedAt := ragdocumentFields[4].Descriptor()
+	// ragdocument.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	ragdocument.DefaultUpdatedAt = ragdocumentDescUpdatedAt.Default.(func() time.Time)
+	// ragdocument.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	ragdocument.UpdateDefaultUpdatedAt = ragdocumentDescUpdatedAt.UpdateDefault.(func() time.Time)
+	ragdocumentversionFields := schema.RagDocumentVersion{}.Fields()
+	_ = ragdocumentversionFields
+	// ragdocumentversionDescFileName is the schema descriptor for file_name field.
+	ragdocumentversionDescFileName := ragdocumentversionFields[4].Descriptor()
+	// ragdocumentversion.FileNameValidator is a validator for the "file_name" field. It is called by the builders before save.
+	ragdocumentversion.FileNameValidator = ragdocumentversionDescFileName.Validators[0].(func(string) error)
+	// ragdocumentversionDescStatus is the schema descriptor for status field.
+	ragdocumentversionDescStatus := ragdocumentversionFields[8].Descriptor()
+	// ragdocumentversion.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	ragdocumentversion.StatusValidator = ragdocumentversionDescStatus.Validators[0].(func(string) error)
+	// ragdocumentversionDescStage is the schema descriptor for stage field.
+	ragdocumentversionDescStage := ragdocumentversionFields[9].Descriptor()
+	// ragdocumentversion.StageValidator is a validator for the "stage" field. It is called by the builders before save.
+	ragdocumentversion.StageValidator = ragdocumentversionDescStage.Validators[0].(func(string) error)
+	// ragdocumentversionDescChunkCount is the schema descriptor for chunk_count field.
+	ragdocumentversionDescChunkCount := ragdocumentversionFields[10].Descriptor()
+	// ragdocumentversion.DefaultChunkCount holds the default value on creation for the chunk_count field.
+	ragdocumentversion.DefaultChunkCount = ragdocumentversionDescChunkCount.Default.(int)
+	// ragdocumentversionDescEmbeddedChunkCount is the schema descriptor for embedded_chunk_count field.
+	ragdocumentversionDescEmbeddedChunkCount := ragdocumentversionFields[11].Descriptor()
+	// ragdocumentversion.DefaultEmbeddedChunkCount holds the default value on creation for the embedded_chunk_count field.
+	ragdocumentversion.DefaultEmbeddedChunkCount = ragdocumentversionDescEmbeddedChunkCount.Default.(int)
+	// ragdocumentversionDescFailureCode is the schema descriptor for failure_code field.
+	ragdocumentversionDescFailureCode := ragdocumentversionFields[12].Descriptor()
+	// ragdocumentversion.FailureCodeValidator is a validator for the "failure_code" field. It is called by the builders before save.
+	ragdocumentversion.FailureCodeValidator = ragdocumentversionDescFailureCode.Validators[0].(func(string) error)
+	// ragdocumentversionDescFailureMessage is the schema descriptor for failure_message field.
+	ragdocumentversionDescFailureMessage := ragdocumentversionFields[13].Descriptor()
+	// ragdocumentversion.FailureMessageValidator is a validator for the "failure_message" field. It is called by the builders before save.
+	ragdocumentversion.FailureMessageValidator = ragdocumentversionDescFailureMessage.Validators[0].(func(string) error)
+	// ragdocumentversionDescCreatedAt is the schema descriptor for created_at field.
+	ragdocumentversionDescCreatedAt := ragdocumentversionFields[14].Descriptor()
+	// ragdocumentversion.DefaultCreatedAt holds the default value on creation for the created_at field.
+	ragdocumentversion.DefaultCreatedAt = ragdocumentversionDescCreatedAt.Default.(func() time.Time)
+	// ragdocumentversionDescUpdatedAt is the schema descriptor for updated_at field.
+	ragdocumentversionDescUpdatedAt := ragdocumentversionFields[15].Descriptor()
+	// ragdocumentversion.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	ragdocumentversion.DefaultUpdatedAt = ragdocumentversionDescUpdatedAt.Default.(func() time.Time)
+	// ragdocumentversion.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	ragdocumentversion.UpdateDefaultUpdatedAt = ragdocumentversionDescUpdatedAt.UpdateDefault.(func() time.Time)
 	raguserFields := schema.RagUser{}.Fields()
 	_ = raguserFields
 	// raguserDescUserID is the schema descriptor for user_id field.

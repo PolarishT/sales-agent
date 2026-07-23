@@ -11,10 +11,13 @@ require (
 	github.com/cloudwego/hertz v0.10.5
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
+	github.com/pgvector/pgvector-go v0.4.0
+	github.com/yuin/goldmark v1.8.4
 )
 
 require (
 	ariga.io/atlas v0.36.2-0.20250730182955-2c6300d0a3e1 // indirect
+	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect

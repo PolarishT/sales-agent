@@ -9,6 +9,42 @@ import (
 	"github.com/PolarishT/sales-agent/ent"
 )
 
+// The RagChunkFunc type is an adapter to allow the use of ordinary
+// function as RagChunk mutator.
+type RagChunkFunc func(context.Context, *ent.RagChunkMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RagChunkFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RagChunkMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RagChunkMutation", m)
+}
+
+// The RagDocumentFunc type is an adapter to allow the use of ordinary
+// function as RagDocument mutator.
+type RagDocumentFunc func(context.Context, *ent.RagDocumentMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RagDocumentFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RagDocumentMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RagDocumentMutation", m)
+}
+
+// The RagDocumentVersionFunc type is an adapter to allow the use of ordinary
+// function as RagDocumentVersion mutator.
+type RagDocumentVersionFunc func(context.Context, *ent.RagDocumentVersionMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RagDocumentVersionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RagDocumentVersionMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RagDocumentVersionMutation", m)
+}
+
 // The RagUserFunc type is an adapter to allow the use of ordinary
 // function as RagUser mutator.
 type RagUserFunc func(context.Context, *ent.RagUserMutation) (ent.Value, error)

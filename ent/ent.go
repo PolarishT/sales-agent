@@ -12,6 +12,9 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/PolarishT/sales-agent/ent/ragchunk"
+	"github.com/PolarishT/sales-agent/ent/ragdocument"
+	"github.com/PolarishT/sales-agent/ent/ragdocumentversion"
 	"github.com/PolarishT/sales-agent/ent/raguser"
 )
 
@@ -73,7 +76,10 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			raguser.Table: raguser.ValidColumn,
+			ragchunk.Table:           ragchunk.ValidColumn,
+			ragdocument.Table:        ragdocument.ValidColumn,
+			ragdocumentversion.Table: ragdocumentversion.ValidColumn,
+			raguser.Table:            raguser.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

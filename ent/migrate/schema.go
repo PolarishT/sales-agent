@@ -9,6 +9,107 @@ import (
 )
 
 var (
+	// RagChunksColumns holds the columns for the "rag_chunks" table.
+	RagChunksColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "chunk_index", Type: field.TypeInt},
+		{Name: "content", Type: field.TypeString, Size: 2147483647},
+		{Name: "embedding_content", Type: field.TypeString, Size: 2147483647},
+		{Name: "heading_path", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "start_line", Type: field.TypeInt},
+		{Name: "end_line", Type: field.TypeInt},
+		{Name: "estimated_tokens", Type: field.TypeInt},
+		{Name: "content_hash", Type: field.TypeString, SchemaType: map[string]string{"postgres": "char(64)"}},
+		{Name: "embedding", Type: field.TypeOther, SchemaType: map[string]string{"postgres": "vector(1024)"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "document_version_id", Type: field.TypeInt64},
+	}
+	// RagChunksTable holds the schema information for the "rag_chunks" table.
+	RagChunksTable = &schema.Table{
+		Name:       "rag_chunks",
+		Columns:    RagChunksColumns,
+		PrimaryKey: []*schema.Column{RagChunksColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "rag_chunks_rag_document_versions_chunks",
+				Columns:    []*schema.Column{RagChunksColumns[11]},
+				RefColumns: []*schema.Column{RagDocumentVersionsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "ragchunk_document_version_id",
+				Unique:  false,
+				Columns: []*schema.Column{RagChunksColumns[11]},
+			},
+			{
+				Name:    "ragchunk_document_version_id_chunk_index",
+				Unique:  true,
+				Columns: []*schema.Column{RagChunksColumns[11], RagChunksColumns[1]},
+			},
+		},
+	}
+	// RagDocumentsColumns holds the columns for the "rag_documents" table.
+	RagDocumentsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "document_key", Type: field.TypeString, Unique: true, Size: 128},
+		{Name: "current_version", Type: field.TypeInt, Default: 0},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// RagDocumentsTable holds the schema information for the "rag_documents" table.
+	RagDocumentsTable = &schema.Table{
+		Name:       "rag_documents",
+		Columns:    RagDocumentsColumns,
+		PrimaryKey: []*schema.Column{RagDocumentsColumns[0]},
+	}
+	// RagDocumentVersionsColumns holds the columns for the "rag_document_versions" table.
+	RagDocumentVersionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "ingestion_id", Type: field.TypeUUID, Unique: true},
+		{Name: "version", Type: field.TypeInt},
+		{Name: "file_name", Type: field.TypeString, Size: 255},
+		{Name: "content_hash", Type: field.TypeString, SchemaType: map[string]string{"postgres": "char(64)"}},
+		{Name: "original_markdown", Type: field.TypeString, Size: 2147483647},
+		{Name: "source_bytes", Type: field.TypeInt64},
+		{Name: "status", Type: field.TypeString, Size: 16},
+		{Name: "stage", Type: field.TypeString, Size: 24},
+		{Name: "chunk_count", Type: field.TypeInt, Default: 0},
+		{Name: "embedded_chunk_count", Type: field.TypeInt, Default: 0},
+		{Name: "failure_code", Type: field.TypeString, Nullable: true, Size: 64},
+		{Name: "failure_message", Type: field.TypeString, Nullable: true, Size: 255},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "completed_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "document_id", Type: field.TypeInt64},
+	}
+	// RagDocumentVersionsTable holds the schema information for the "rag_document_versions" table.
+	RagDocumentVersionsTable = &schema.Table{
+		Name:       "rag_document_versions",
+		Columns:    RagDocumentVersionsColumns,
+		PrimaryKey: []*schema.Column{RagDocumentVersionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "rag_document_versions_rag_documents_versions",
+				Columns:    []*schema.Column{RagDocumentVersionsColumns[16]},
+				RefColumns: []*schema.Column{RagDocumentsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "ragdocumentversion_document_id",
+				Unique:  false,
+				Columns: []*schema.Column{RagDocumentVersionsColumns[16]},
+			},
+			{
+				Name:    "ragdocumentversion_document_id_version",
+				Unique:  true,
+				Columns: []*schema.Column{RagDocumentVersionsColumns[16], RagDocumentVersionsColumns[2]},
+			},
+		},
+	}
 	// RagUsersColumns holds the columns for the "rag_users" table.
 	RagUsersColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -25,11 +126,25 @@ var (
 	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
+		RagChunksTable,
+		RagDocumentsTable,
+		RagDocumentVersionsTable,
 		RagUsersTable,
 	}
 )
 
 func init() {
+	RagChunksTable.ForeignKeys[0].RefTable = RagDocumentVersionsTable
+	RagChunksTable.Annotation = &entsql.Annotation{
+		Table: "rag_chunks",
+	}
+	RagDocumentsTable.Annotation = &entsql.Annotation{
+		Table: "rag_documents",
+	}
+	RagDocumentVersionsTable.ForeignKeys[0].RefTable = RagDocumentsTable
+	RagDocumentVersionsTable.Annotation = &entsql.Annotation{
+		Table: "rag_document_versions",
+	}
 	RagUsersTable.Annotation = &entsql.Annotation{
 		Table: "rag_users",
 	}

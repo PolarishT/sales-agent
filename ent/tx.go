@@ -12,6 +12,12 @@ import (
 // Tx is a transactional client that is created by calling Client.Tx().
 type Tx struct {
 	config
+	// RagChunk is the client for interacting with the RagChunk builders.
+	RagChunk *RagChunkClient
+	// RagDocument is the client for interacting with the RagDocument builders.
+	RagDocument *RagDocumentClient
+	// RagDocumentVersion is the client for interacting with the RagDocumentVersion builders.
+	RagDocumentVersion *RagDocumentVersionClient
 	// RagUser is the client for interacting with the RagUser builders.
 	RagUser *RagUserClient
 
@@ -145,6 +151,9 @@ func (tx *Tx) Client() *Client {
 }
 
 func (tx *Tx) init() {
+	tx.RagChunk = NewRagChunkClient(tx.config)
+	tx.RagDocument = NewRagDocumentClient(tx.config)
+	tx.RagDocumentVersion = NewRagDocumentVersionClient(tx.config)
 	tx.RagUser = NewRagUserClient(tx.config)
 }
 
@@ -155,7 +164,7 @@ func (tx *Tx) init() {
 // of them in order to commit or rollback the transaction.
 //
 // If a closed transaction is embedded in one of the generated entities, and the entity
-// applies a query, for example: RagUser.QueryXXX(), the query will be executed
+// applies a query, for example: RagChunk.QueryXXX(), the query will be executed
 // through the driver which created this transaction.
 //
 // Note that txDriver is not goroutine safe.

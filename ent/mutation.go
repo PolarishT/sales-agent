@@ -12,7 +12,12 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/PolarishT/sales-agent/ent/predicate"
+	"github.com/PolarishT/sales-agent/ent/ragchunk"
+	"github.com/PolarishT/sales-agent/ent/ragdocument"
+	"github.com/PolarishT/sales-agent/ent/ragdocumentversion"
 	"github.com/PolarishT/sales-agent/ent/raguser"
+	"github.com/google/uuid"
+	pgvector "github.com/pgvector/pgvector-go"
 )
 
 const (
@@ -24,8 +29,3187 @@ const (
 	OpUpdateOne = ent.OpUpdateOne
 
 	// Node types.
-	TypeRagUser = "RagUser"
+	TypeRagChunk           = "RagChunk"
+	TypeRagDocument        = "RagDocument"
+	TypeRagDocumentVersion = "RagDocumentVersion"
+	TypeRagUser            = "RagUser"
 )
+
+// RagChunkMutation represents an operation that mutates the RagChunk nodes in the graph.
+type RagChunkMutation struct {
+	config
+	op                      Op
+	typ                     string
+	id                      *int64
+	chunk_index             *int
+	addchunk_index          *int
+	content                 *string
+	embedding_content       *string
+	heading_path            *[]string
+	appendheading_path      []string
+	start_line              *int
+	addstart_line           *int
+	end_line                *int
+	addend_line             *int
+	estimated_tokens        *int
+	addestimated_tokens     *int
+	content_hash            *string
+	embedding               *pgvector.Vector
+	created_at              *time.Time
+	clearedFields           map[string]struct{}
+	document_version        *int64
+	cleareddocument_version bool
+	done                    bool
+	oldValue                func(context.Context) (*RagChunk, error)
+	predicates              []predicate.RagChunk
+}
+
+var _ ent.Mutation = (*RagChunkMutation)(nil)
+
+// ragchunkOption allows management of the mutation configuration using functional options.
+type ragchunkOption func(*RagChunkMutation)
+
+// newRagChunkMutation creates new mutation for the RagChunk entity.
+func newRagChunkMutation(c config, op Op, opts ...ragchunkOption) *RagChunkMutation {
+	m := &RagChunkMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeRagChunk,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withRagChunkID sets the ID field of the mutation.
+func withRagChunkID(id int64) ragchunkOption {
+	return func(m *RagChunkMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *RagChunk
+		)
+		m.oldValue = func(ctx context.Context) (*RagChunk, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().RagChunk.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withRagChunk sets the old RagChunk of the mutation.
+func withRagChunk(node *RagChunk) ragchunkOption {
+	return func(m *RagChunkMutation) {
+		m.oldValue = func(context.Context) (*RagChunk, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m RagChunkMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m RagChunkMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of RagChunk entities.
+func (m *RagChunkMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *RagChunkMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *RagChunkMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().RagChunk.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetDocumentVersionID sets the "document_version_id" field.
+func (m *RagChunkMutation) SetDocumentVersionID(i int64) {
+	m.document_version = &i
+}
+
+// DocumentVersionID returns the value of the "document_version_id" field in the mutation.
+func (m *RagChunkMutation) DocumentVersionID() (r int64, exists bool) {
+	v := m.document_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDocumentVersionID returns the old "document_version_id" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldDocumentVersionID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDocumentVersionID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDocumentVersionID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDocumentVersionID: %w", err)
+	}
+	return oldValue.DocumentVersionID, nil
+}
+
+// ResetDocumentVersionID resets all changes to the "document_version_id" field.
+func (m *RagChunkMutation) ResetDocumentVersionID() {
+	m.document_version = nil
+}
+
+// SetChunkIndex sets the "chunk_index" field.
+func (m *RagChunkMutation) SetChunkIndex(i int) {
+	m.chunk_index = &i
+	m.addchunk_index = nil
+}
+
+// ChunkIndex returns the value of the "chunk_index" field in the mutation.
+func (m *RagChunkMutation) ChunkIndex() (r int, exists bool) {
+	v := m.chunk_index
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChunkIndex returns the old "chunk_index" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldChunkIndex(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChunkIndex is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChunkIndex requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChunkIndex: %w", err)
+	}
+	return oldValue.ChunkIndex, nil
+}
+
+// AddChunkIndex adds i to the "chunk_index" field.
+func (m *RagChunkMutation) AddChunkIndex(i int) {
+	if m.addchunk_index != nil {
+		*m.addchunk_index += i
+	} else {
+		m.addchunk_index = &i
+	}
+}
+
+// AddedChunkIndex returns the value that was added to the "chunk_index" field in this mutation.
+func (m *RagChunkMutation) AddedChunkIndex() (r int, exists bool) {
+	v := m.addchunk_index
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetChunkIndex resets all changes to the "chunk_index" field.
+func (m *RagChunkMutation) ResetChunkIndex() {
+	m.chunk_index = nil
+	m.addchunk_index = nil
+}
+
+// SetContent sets the "content" field.
+func (m *RagChunkMutation) SetContent(s string) {
+	m.content = &s
+}
+
+// Content returns the value of the "content" field in the mutation.
+func (m *RagChunkMutation) Content() (r string, exists bool) {
+	v := m.content
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldContent returns the old "content" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldContent(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldContent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldContent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldContent: %w", err)
+	}
+	return oldValue.Content, nil
+}
+
+// ResetContent resets all changes to the "content" field.
+func (m *RagChunkMutation) ResetContent() {
+	m.content = nil
+}
+
+// SetEmbeddingContent sets the "embedding_content" field.
+func (m *RagChunkMutation) SetEmbeddingContent(s string) {
+	m.embedding_content = &s
+}
+
+// EmbeddingContent returns the value of the "embedding_content" field in the mutation.
+func (m *RagChunkMutation) EmbeddingContent() (r string, exists bool) {
+	v := m.embedding_content
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEmbeddingContent returns the old "embedding_content" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldEmbeddingContent(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEmbeddingContent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEmbeddingContent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEmbeddingContent: %w", err)
+	}
+	return oldValue.EmbeddingContent, nil
+}
+
+// ResetEmbeddingContent resets all changes to the "embedding_content" field.
+func (m *RagChunkMutation) ResetEmbeddingContent() {
+	m.embedding_content = nil
+}
+
+// SetHeadingPath sets the "heading_path" field.
+func (m *RagChunkMutation) SetHeadingPath(s []string) {
+	m.heading_path = &s
+	m.appendheading_path = nil
+}
+
+// HeadingPath returns the value of the "heading_path" field in the mutation.
+func (m *RagChunkMutation) HeadingPath() (r []string, exists bool) {
+	v := m.heading_path
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldHeadingPath returns the old "heading_path" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldHeadingPath(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldHeadingPath is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldHeadingPath requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldHeadingPath: %w", err)
+	}
+	return oldValue.HeadingPath, nil
+}
+
+// AppendHeadingPath adds s to the "heading_path" field.
+func (m *RagChunkMutation) AppendHeadingPath(s []string) {
+	m.appendheading_path = append(m.appendheading_path, s...)
+}
+
+// AppendedHeadingPath returns the list of values that were appended to the "heading_path" field in this mutation.
+func (m *RagChunkMutation) AppendedHeadingPath() ([]string, bool) {
+	if len(m.appendheading_path) == 0 {
+		return nil, false
+	}
+	return m.appendheading_path, true
+}
+
+// ResetHeadingPath resets all changes to the "heading_path" field.
+func (m *RagChunkMutation) ResetHeadingPath() {
+	m.heading_path = nil
+	m.appendheading_path = nil
+}
+
+// SetStartLine sets the "start_line" field.
+func (m *RagChunkMutation) SetStartLine(i int) {
+	m.start_line = &i
+	m.addstart_line = nil
+}
+
+// StartLine returns the value of the "start_line" field in the mutation.
+func (m *RagChunkMutation) StartLine() (r int, exists bool) {
+	v := m.start_line
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStartLine returns the old "start_line" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldStartLine(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStartLine is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStartLine requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStartLine: %w", err)
+	}
+	return oldValue.StartLine, nil
+}
+
+// AddStartLine adds i to the "start_line" field.
+func (m *RagChunkMutation) AddStartLine(i int) {
+	if m.addstart_line != nil {
+		*m.addstart_line += i
+	} else {
+		m.addstart_line = &i
+	}
+}
+
+// AddedStartLine returns the value that was added to the "start_line" field in this mutation.
+func (m *RagChunkMutation) AddedStartLine() (r int, exists bool) {
+	v := m.addstart_line
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetStartLine resets all changes to the "start_line" field.
+func (m *RagChunkMutation) ResetStartLine() {
+	m.start_line = nil
+	m.addstart_line = nil
+}
+
+// SetEndLine sets the "end_line" field.
+func (m *RagChunkMutation) SetEndLine(i int) {
+	m.end_line = &i
+	m.addend_line = nil
+}
+
+// EndLine returns the value of the "end_line" field in the mutation.
+func (m *RagChunkMutation) EndLine() (r int, exists bool) {
+	v := m.end_line
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEndLine returns the old "end_line" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldEndLine(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEndLine is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEndLine requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEndLine: %w", err)
+	}
+	return oldValue.EndLine, nil
+}
+
+// AddEndLine adds i to the "end_line" field.
+func (m *RagChunkMutation) AddEndLine(i int) {
+	if m.addend_line != nil {
+		*m.addend_line += i
+	} else {
+		m.addend_line = &i
+	}
+}
+
+// AddedEndLine returns the value that was added to the "end_line" field in this mutation.
+func (m *RagChunkMutation) AddedEndLine() (r int, exists bool) {
+	v := m.addend_line
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetEndLine resets all changes to the "end_line" field.
+func (m *RagChunkMutation) ResetEndLine() {
+	m.end_line = nil
+	m.addend_line = nil
+}
+
+// SetEstimatedTokens sets the "estimated_tokens" field.
+func (m *RagChunkMutation) SetEstimatedTokens(i int) {
+	m.estimated_tokens = &i
+	m.addestimated_tokens = nil
+}
+
+// EstimatedTokens returns the value of the "estimated_tokens" field in the mutation.
+func (m *RagChunkMutation) EstimatedTokens() (r int, exists bool) {
+	v := m.estimated_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEstimatedTokens returns the old "estimated_tokens" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldEstimatedTokens(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEstimatedTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEstimatedTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEstimatedTokens: %w", err)
+	}
+	return oldValue.EstimatedTokens, nil
+}
+
+// AddEstimatedTokens adds i to the "estimated_tokens" field.
+func (m *RagChunkMutation) AddEstimatedTokens(i int) {
+	if m.addestimated_tokens != nil {
+		*m.addestimated_tokens += i
+	} else {
+		m.addestimated_tokens = &i
+	}
+}
+
+// AddedEstimatedTokens returns the value that was added to the "estimated_tokens" field in this mutation.
+func (m *RagChunkMutation) AddedEstimatedTokens() (r int, exists bool) {
+	v := m.addestimated_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetEstimatedTokens resets all changes to the "estimated_tokens" field.
+func (m *RagChunkMutation) ResetEstimatedTokens() {
+	m.estimated_tokens = nil
+	m.addestimated_tokens = nil
+}
+
+// SetContentHash sets the "content_hash" field.
+func (m *RagChunkMutation) SetContentHash(s string) {
+	m.content_hash = &s
+}
+
+// ContentHash returns the value of the "content_hash" field in the mutation.
+func (m *RagChunkMutation) ContentHash() (r string, exists bool) {
+	v := m.content_hash
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldContentHash returns the old "content_hash" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldContentHash(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldContentHash is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldContentHash requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldContentHash: %w", err)
+	}
+	return oldValue.ContentHash, nil
+}
+
+// ResetContentHash resets all changes to the "content_hash" field.
+func (m *RagChunkMutation) ResetContentHash() {
+	m.content_hash = nil
+}
+
+// SetEmbedding sets the "embedding" field.
+func (m *RagChunkMutation) SetEmbedding(pg pgvector.Vector) {
+	m.embedding = &pg
+}
+
+// Embedding returns the value of the "embedding" field in the mutation.
+func (m *RagChunkMutation) Embedding() (r pgvector.Vector, exists bool) {
+	v := m.embedding
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEmbedding returns the old "embedding" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldEmbedding(ctx context.Context) (v pgvector.Vector, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEmbedding is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEmbedding requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEmbedding: %w", err)
+	}
+	return oldValue.Embedding, nil
+}
+
+// ResetEmbedding resets all changes to the "embedding" field.
+func (m *RagChunkMutation) ResetEmbedding() {
+	m.embedding = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *RagChunkMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *RagChunkMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the RagChunk entity.
+// If the RagChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagChunkMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *RagChunkMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// ClearDocumentVersion clears the "document_version" edge to the RagDocumentVersion entity.
+func (m *RagChunkMutation) ClearDocumentVersion() {
+	m.cleareddocument_version = true
+	m.clearedFields[ragchunk.FieldDocumentVersionID] = struct{}{}
+}
+
+// DocumentVersionCleared reports if the "document_version" edge to the RagDocumentVersion entity was cleared.
+func (m *RagChunkMutation) DocumentVersionCleared() bool {
+	return m.cleareddocument_version
+}
+
+// DocumentVersionIDs returns the "document_version" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// DocumentVersionID instead. It exists only for internal usage by the builders.
+func (m *RagChunkMutation) DocumentVersionIDs() (ids []int64) {
+	if id := m.document_version; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetDocumentVersion resets all changes to the "document_version" edge.
+func (m *RagChunkMutation) ResetDocumentVersion() {
+	m.document_version = nil
+	m.cleareddocument_version = false
+}
+
+// Where appends a list predicates to the RagChunkMutation builder.
+func (m *RagChunkMutation) Where(ps ...predicate.RagChunk) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the RagChunkMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *RagChunkMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.RagChunk, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *RagChunkMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *RagChunkMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (RagChunk).
+func (m *RagChunkMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *RagChunkMutation) Fields() []string {
+	fields := make([]string, 0, 11)
+	if m.document_version != nil {
+		fields = append(fields, ragchunk.FieldDocumentVersionID)
+	}
+	if m.chunk_index != nil {
+		fields = append(fields, ragchunk.FieldChunkIndex)
+	}
+	if m.content != nil {
+		fields = append(fields, ragchunk.FieldContent)
+	}
+	if m.embedding_content != nil {
+		fields = append(fields, ragchunk.FieldEmbeddingContent)
+	}
+	if m.heading_path != nil {
+		fields = append(fields, ragchunk.FieldHeadingPath)
+	}
+	if m.start_line != nil {
+		fields = append(fields, ragchunk.FieldStartLine)
+	}
+	if m.end_line != nil {
+		fields = append(fields, ragchunk.FieldEndLine)
+	}
+	if m.estimated_tokens != nil {
+		fields = append(fields, ragchunk.FieldEstimatedTokens)
+	}
+	if m.content_hash != nil {
+		fields = append(fields, ragchunk.FieldContentHash)
+	}
+	if m.embedding != nil {
+		fields = append(fields, ragchunk.FieldEmbedding)
+	}
+	if m.created_at != nil {
+		fields = append(fields, ragchunk.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *RagChunkMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case ragchunk.FieldDocumentVersionID:
+		return m.DocumentVersionID()
+	case ragchunk.FieldChunkIndex:
+		return m.ChunkIndex()
+	case ragchunk.FieldContent:
+		return m.Content()
+	case ragchunk.FieldEmbeddingContent:
+		return m.EmbeddingContent()
+	case ragchunk.FieldHeadingPath:
+		return m.HeadingPath()
+	case ragchunk.FieldStartLine:
+		return m.StartLine()
+	case ragchunk.FieldEndLine:
+		return m.EndLine()
+	case ragchunk.FieldEstimatedTokens:
+		return m.EstimatedTokens()
+	case ragchunk.FieldContentHash:
+		return m.ContentHash()
+	case ragchunk.FieldEmbedding:
+		return m.Embedding()
+	case ragchunk.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *RagChunkMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case ragchunk.FieldDocumentVersionID:
+		return m.OldDocumentVersionID(ctx)
+	case ragchunk.FieldChunkIndex:
+		return m.OldChunkIndex(ctx)
+	case ragchunk.FieldContent:
+		return m.OldContent(ctx)
+	case ragchunk.FieldEmbeddingContent:
+		return m.OldEmbeddingContent(ctx)
+	case ragchunk.FieldHeadingPath:
+		return m.OldHeadingPath(ctx)
+	case ragchunk.FieldStartLine:
+		return m.OldStartLine(ctx)
+	case ragchunk.FieldEndLine:
+		return m.OldEndLine(ctx)
+	case ragchunk.FieldEstimatedTokens:
+		return m.OldEstimatedTokens(ctx)
+	case ragchunk.FieldContentHash:
+		return m.OldContentHash(ctx)
+	case ragchunk.FieldEmbedding:
+		return m.OldEmbedding(ctx)
+	case ragchunk.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown RagChunk field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RagChunkMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case ragchunk.FieldDocumentVersionID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDocumentVersionID(v)
+		return nil
+	case ragchunk.FieldChunkIndex:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChunkIndex(v)
+		return nil
+	case ragchunk.FieldContent:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetContent(v)
+		return nil
+	case ragchunk.FieldEmbeddingContent:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEmbeddingContent(v)
+		return nil
+	case ragchunk.FieldHeadingPath:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetHeadingPath(v)
+		return nil
+	case ragchunk.FieldStartLine:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStartLine(v)
+		return nil
+	case ragchunk.FieldEndLine:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEndLine(v)
+		return nil
+	case ragchunk.FieldEstimatedTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEstimatedTokens(v)
+		return nil
+	case ragchunk.FieldContentHash:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetContentHash(v)
+		return nil
+	case ragchunk.FieldEmbedding:
+		v, ok := value.(pgvector.Vector)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEmbedding(v)
+		return nil
+	case ragchunk.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RagChunk field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *RagChunkMutation) AddedFields() []string {
+	var fields []string
+	if m.addchunk_index != nil {
+		fields = append(fields, ragchunk.FieldChunkIndex)
+	}
+	if m.addstart_line != nil {
+		fields = append(fields, ragchunk.FieldStartLine)
+	}
+	if m.addend_line != nil {
+		fields = append(fields, ragchunk.FieldEndLine)
+	}
+	if m.addestimated_tokens != nil {
+		fields = append(fields, ragchunk.FieldEstimatedTokens)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *RagChunkMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case ragchunk.FieldChunkIndex:
+		return m.AddedChunkIndex()
+	case ragchunk.FieldStartLine:
+		return m.AddedStartLine()
+	case ragchunk.FieldEndLine:
+		return m.AddedEndLine()
+	case ragchunk.FieldEstimatedTokens:
+		return m.AddedEstimatedTokens()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RagChunkMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case ragchunk.FieldChunkIndex:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddChunkIndex(v)
+		return nil
+	case ragchunk.FieldStartLine:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddStartLine(v)
+		return nil
+	case ragchunk.FieldEndLine:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddEndLine(v)
+		return nil
+	case ragchunk.FieldEstimatedTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddEstimatedTokens(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RagChunk numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *RagChunkMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *RagChunkMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *RagChunkMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown RagChunk nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *RagChunkMutation) ResetField(name string) error {
+	switch name {
+	case ragchunk.FieldDocumentVersionID:
+		m.ResetDocumentVersionID()
+		return nil
+	case ragchunk.FieldChunkIndex:
+		m.ResetChunkIndex()
+		return nil
+	case ragchunk.FieldContent:
+		m.ResetContent()
+		return nil
+	case ragchunk.FieldEmbeddingContent:
+		m.ResetEmbeddingContent()
+		return nil
+	case ragchunk.FieldHeadingPath:
+		m.ResetHeadingPath()
+		return nil
+	case ragchunk.FieldStartLine:
+		m.ResetStartLine()
+		return nil
+	case ragchunk.FieldEndLine:
+		m.ResetEndLine()
+		return nil
+	case ragchunk.FieldEstimatedTokens:
+		m.ResetEstimatedTokens()
+		return nil
+	case ragchunk.FieldContentHash:
+		m.ResetContentHash()
+		return nil
+	case ragchunk.FieldEmbedding:
+		m.ResetEmbedding()
+		return nil
+	case ragchunk.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown RagChunk field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *RagChunkMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.document_version != nil {
+		edges = append(edges, ragchunk.EdgeDocumentVersion)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *RagChunkMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case ragchunk.EdgeDocumentVersion:
+		if id := m.document_version; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *RagChunkMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *RagChunkMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *RagChunkMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.cleareddocument_version {
+		edges = append(edges, ragchunk.EdgeDocumentVersion)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *RagChunkMutation) EdgeCleared(name string) bool {
+	switch name {
+	case ragchunk.EdgeDocumentVersion:
+		return m.cleareddocument_version
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *RagChunkMutation) ClearEdge(name string) error {
+	switch name {
+	case ragchunk.EdgeDocumentVersion:
+		m.ClearDocumentVersion()
+		return nil
+	}
+	return fmt.Errorf("unknown RagChunk unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *RagChunkMutation) ResetEdge(name string) error {
+	switch name {
+	case ragchunk.EdgeDocumentVersion:
+		m.ResetDocumentVersion()
+		return nil
+	}
+	return fmt.Errorf("unknown RagChunk edge %s", name)
+}
+
+// RagDocumentMutation represents an operation that mutates the RagDocument nodes in the graph.
+type RagDocumentMutation struct {
+	config
+	op                 Op
+	typ                string
+	id                 *int64
+	document_key       *string
+	current_version    *int
+	addcurrent_version *int
+	created_at         *time.Time
+	updated_at         *time.Time
+	clearedFields      map[string]struct{}
+	versions           map[int64]struct{}
+	removedversions    map[int64]struct{}
+	clearedversions    bool
+	done               bool
+	oldValue           func(context.Context) (*RagDocument, error)
+	predicates         []predicate.RagDocument
+}
+
+var _ ent.Mutation = (*RagDocumentMutation)(nil)
+
+// ragdocumentOption allows management of the mutation configuration using functional options.
+type ragdocumentOption func(*RagDocumentMutation)
+
+// newRagDocumentMutation creates new mutation for the RagDocument entity.
+func newRagDocumentMutation(c config, op Op, opts ...ragdocumentOption) *RagDocumentMutation {
+	m := &RagDocumentMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeRagDocument,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withRagDocumentID sets the ID field of the mutation.
+func withRagDocumentID(id int64) ragdocumentOption {
+	return func(m *RagDocumentMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *RagDocument
+		)
+		m.oldValue = func(ctx context.Context) (*RagDocument, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().RagDocument.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withRagDocument sets the old RagDocument of the mutation.
+func withRagDocument(node *RagDocument) ragdocumentOption {
+	return func(m *RagDocumentMutation) {
+		m.oldValue = func(context.Context) (*RagDocument, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m RagDocumentMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m RagDocumentMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of RagDocument entities.
+func (m *RagDocumentMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *RagDocumentMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *RagDocumentMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().RagDocument.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetDocumentKey sets the "document_key" field.
+func (m *RagDocumentMutation) SetDocumentKey(s string) {
+	m.document_key = &s
+}
+
+// DocumentKey returns the value of the "document_key" field in the mutation.
+func (m *RagDocumentMutation) DocumentKey() (r string, exists bool) {
+	v := m.document_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDocumentKey returns the old "document_key" field's value of the RagDocument entity.
+// If the RagDocument object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentMutation) OldDocumentKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDocumentKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDocumentKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDocumentKey: %w", err)
+	}
+	return oldValue.DocumentKey, nil
+}
+
+// ResetDocumentKey resets all changes to the "document_key" field.
+func (m *RagDocumentMutation) ResetDocumentKey() {
+	m.document_key = nil
+}
+
+// SetCurrentVersion sets the "current_version" field.
+func (m *RagDocumentMutation) SetCurrentVersion(i int) {
+	m.current_version = &i
+	m.addcurrent_version = nil
+}
+
+// CurrentVersion returns the value of the "current_version" field in the mutation.
+func (m *RagDocumentMutation) CurrentVersion() (r int, exists bool) {
+	v := m.current_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCurrentVersion returns the old "current_version" field's value of the RagDocument entity.
+// If the RagDocument object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentMutation) OldCurrentVersion(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCurrentVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCurrentVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCurrentVersion: %w", err)
+	}
+	return oldValue.CurrentVersion, nil
+}
+
+// AddCurrentVersion adds i to the "current_version" field.
+func (m *RagDocumentMutation) AddCurrentVersion(i int) {
+	if m.addcurrent_version != nil {
+		*m.addcurrent_version += i
+	} else {
+		m.addcurrent_version = &i
+	}
+}
+
+// AddedCurrentVersion returns the value that was added to the "current_version" field in this mutation.
+func (m *RagDocumentMutation) AddedCurrentVersion() (r int, exists bool) {
+	v := m.addcurrent_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCurrentVersion resets all changes to the "current_version" field.
+func (m *RagDocumentMutation) ResetCurrentVersion() {
+	m.current_version = nil
+	m.addcurrent_version = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *RagDocumentMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *RagDocumentMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the RagDocument entity.
+// If the RagDocument object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *RagDocumentMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *RagDocumentMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *RagDocumentMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the RagDocument entity.
+// If the RagDocument object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *RagDocumentMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// AddVersionIDs adds the "versions" edge to the RagDocumentVersion entity by ids.
+func (m *RagDocumentMutation) AddVersionIDs(ids ...int64) {
+	if m.versions == nil {
+		m.versions = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.versions[ids[i]] = struct{}{}
+	}
+}
+
+// ClearVersions clears the "versions" edge to the RagDocumentVersion entity.
+func (m *RagDocumentMutation) ClearVersions() {
+	m.clearedversions = true
+}
+
+// VersionsCleared reports if the "versions" edge to the RagDocumentVersion entity was cleared.
+func (m *RagDocumentMutation) VersionsCleared() bool {
+	return m.clearedversions
+}
+
+// RemoveVersionIDs removes the "versions" edge to the RagDocumentVersion entity by IDs.
+func (m *RagDocumentMutation) RemoveVersionIDs(ids ...int64) {
+	if m.removedversions == nil {
+		m.removedversions = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.versions, ids[i])
+		m.removedversions[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedVersions returns the removed IDs of the "versions" edge to the RagDocumentVersion entity.
+func (m *RagDocumentMutation) RemovedVersionsIDs() (ids []int64) {
+	for id := range m.removedversions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// VersionsIDs returns the "versions" edge IDs in the mutation.
+func (m *RagDocumentMutation) VersionsIDs() (ids []int64) {
+	for id := range m.versions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetVersions resets all changes to the "versions" edge.
+func (m *RagDocumentMutation) ResetVersions() {
+	m.versions = nil
+	m.clearedversions = false
+	m.removedversions = nil
+}
+
+// Where appends a list predicates to the RagDocumentMutation builder.
+func (m *RagDocumentMutation) Where(ps ...predicate.RagDocument) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the RagDocumentMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *RagDocumentMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.RagDocument, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *RagDocumentMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *RagDocumentMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (RagDocument).
+func (m *RagDocumentMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *RagDocumentMutation) Fields() []string {
+	fields := make([]string, 0, 4)
+	if m.document_key != nil {
+		fields = append(fields, ragdocument.FieldDocumentKey)
+	}
+	if m.current_version != nil {
+		fields = append(fields, ragdocument.FieldCurrentVersion)
+	}
+	if m.created_at != nil {
+		fields = append(fields, ragdocument.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, ragdocument.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *RagDocumentMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case ragdocument.FieldDocumentKey:
+		return m.DocumentKey()
+	case ragdocument.FieldCurrentVersion:
+		return m.CurrentVersion()
+	case ragdocument.FieldCreatedAt:
+		return m.CreatedAt()
+	case ragdocument.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *RagDocumentMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case ragdocument.FieldDocumentKey:
+		return m.OldDocumentKey(ctx)
+	case ragdocument.FieldCurrentVersion:
+		return m.OldCurrentVersion(ctx)
+	case ragdocument.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case ragdocument.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown RagDocument field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RagDocumentMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case ragdocument.FieldDocumentKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDocumentKey(v)
+		return nil
+	case ragdocument.FieldCurrentVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCurrentVersion(v)
+		return nil
+	case ragdocument.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case ragdocument.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocument field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *RagDocumentMutation) AddedFields() []string {
+	var fields []string
+	if m.addcurrent_version != nil {
+		fields = append(fields, ragdocument.FieldCurrentVersion)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *RagDocumentMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case ragdocument.FieldCurrentVersion:
+		return m.AddedCurrentVersion()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RagDocumentMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case ragdocument.FieldCurrentVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCurrentVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocument numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *RagDocumentMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *RagDocumentMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *RagDocumentMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown RagDocument nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *RagDocumentMutation) ResetField(name string) error {
+	switch name {
+	case ragdocument.FieldDocumentKey:
+		m.ResetDocumentKey()
+		return nil
+	case ragdocument.FieldCurrentVersion:
+		m.ResetCurrentVersion()
+		return nil
+	case ragdocument.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case ragdocument.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocument field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *RagDocumentMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.versions != nil {
+		edges = append(edges, ragdocument.EdgeVersions)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *RagDocumentMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case ragdocument.EdgeVersions:
+		ids := make([]ent.Value, 0, len(m.versions))
+		for id := range m.versions {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *RagDocumentMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.removedversions != nil {
+		edges = append(edges, ragdocument.EdgeVersions)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *RagDocumentMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case ragdocument.EdgeVersions:
+		ids := make([]ent.Value, 0, len(m.removedversions))
+		for id := range m.removedversions {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *RagDocumentMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedversions {
+		edges = append(edges, ragdocument.EdgeVersions)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *RagDocumentMutation) EdgeCleared(name string) bool {
+	switch name {
+	case ragdocument.EdgeVersions:
+		return m.clearedversions
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *RagDocumentMutation) ClearEdge(name string) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown RagDocument unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *RagDocumentMutation) ResetEdge(name string) error {
+	switch name {
+	case ragdocument.EdgeVersions:
+		m.ResetVersions()
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocument edge %s", name)
+}
+
+// RagDocumentVersionMutation represents an operation that mutates the RagDocumentVersion nodes in the graph.
+type RagDocumentVersionMutation struct {
+	config
+	op                      Op
+	typ                     string
+	id                      *int64
+	ingestion_id            *uuid.UUID
+	version                 *int
+	addversion              *int
+	file_name               *string
+	content_hash            *string
+	original_markdown       *string
+	source_bytes            *int64
+	addsource_bytes         *int64
+	status                  *string
+	stage                   *string
+	chunk_count             *int
+	addchunk_count          *int
+	embedded_chunk_count    *int
+	addembedded_chunk_count *int
+	failure_code            *string
+	failure_message         *string
+	created_at              *time.Time
+	updated_at              *time.Time
+	completed_at            *time.Time
+	clearedFields           map[string]struct{}
+	document                *int64
+	cleareddocument         bool
+	chunks                  map[int64]struct{}
+	removedchunks           map[int64]struct{}
+	clearedchunks           bool
+	done                    bool
+	oldValue                func(context.Context) (*RagDocumentVersion, error)
+	predicates              []predicate.RagDocumentVersion
+}
+
+var _ ent.Mutation = (*RagDocumentVersionMutation)(nil)
+
+// ragdocumentversionOption allows management of the mutation configuration using functional options.
+type ragdocumentversionOption func(*RagDocumentVersionMutation)
+
+// newRagDocumentVersionMutation creates new mutation for the RagDocumentVersion entity.
+func newRagDocumentVersionMutation(c config, op Op, opts ...ragdocumentversionOption) *RagDocumentVersionMutation {
+	m := &RagDocumentVersionMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeRagDocumentVersion,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withRagDocumentVersionID sets the ID field of the mutation.
+func withRagDocumentVersionID(id int64) ragdocumentversionOption {
+	return func(m *RagDocumentVersionMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *RagDocumentVersion
+		)
+		m.oldValue = func(ctx context.Context) (*RagDocumentVersion, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().RagDocumentVersion.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withRagDocumentVersion sets the old RagDocumentVersion of the mutation.
+func withRagDocumentVersion(node *RagDocumentVersion) ragdocumentversionOption {
+	return func(m *RagDocumentVersionMutation) {
+		m.oldValue = func(context.Context) (*RagDocumentVersion, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m RagDocumentVersionMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m RagDocumentVersionMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of RagDocumentVersion entities.
+func (m *RagDocumentVersionMutation) SetID(id int64) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *RagDocumentVersionMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *RagDocumentVersionMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().RagDocumentVersion.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetIngestionID sets the "ingestion_id" field.
+func (m *RagDocumentVersionMutation) SetIngestionID(u uuid.UUID) {
+	m.ingestion_id = &u
+}
+
+// IngestionID returns the value of the "ingestion_id" field in the mutation.
+func (m *RagDocumentVersionMutation) IngestionID() (r uuid.UUID, exists bool) {
+	v := m.ingestion_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIngestionID returns the old "ingestion_id" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldIngestionID(ctx context.Context) (v uuid.UUID, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIngestionID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIngestionID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIngestionID: %w", err)
+	}
+	return oldValue.IngestionID, nil
+}
+
+// ResetIngestionID resets all changes to the "ingestion_id" field.
+func (m *RagDocumentVersionMutation) ResetIngestionID() {
+	m.ingestion_id = nil
+}
+
+// SetDocumentID sets the "document_id" field.
+func (m *RagDocumentVersionMutation) SetDocumentID(i int64) {
+	m.document = &i
+}
+
+// DocumentID returns the value of the "document_id" field in the mutation.
+func (m *RagDocumentVersionMutation) DocumentID() (r int64, exists bool) {
+	v := m.document
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDocumentID returns the old "document_id" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldDocumentID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDocumentID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDocumentID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDocumentID: %w", err)
+	}
+	return oldValue.DocumentID, nil
+}
+
+// ResetDocumentID resets all changes to the "document_id" field.
+func (m *RagDocumentVersionMutation) ResetDocumentID() {
+	m.document = nil
+}
+
+// SetVersion sets the "version" field.
+func (m *RagDocumentVersionMutation) SetVersion(i int) {
+	m.version = &i
+	m.addversion = nil
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *RagDocumentVersionMutation) Version() (r int, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldVersion(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// AddVersion adds i to the "version" field.
+func (m *RagDocumentVersionMutation) AddVersion(i int) {
+	if m.addversion != nil {
+		*m.addversion += i
+	} else {
+		m.addversion = &i
+	}
+}
+
+// AddedVersion returns the value that was added to the "version" field in this mutation.
+func (m *RagDocumentVersionMutation) AddedVersion() (r int, exists bool) {
+	v := m.addversion
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *RagDocumentVersionMutation) ResetVersion() {
+	m.version = nil
+	m.addversion = nil
+}
+
+// SetFileName sets the "file_name" field.
+func (m *RagDocumentVersionMutation) SetFileName(s string) {
+	m.file_name = &s
+}
+
+// FileName returns the value of the "file_name" field in the mutation.
+func (m *RagDocumentVersionMutation) FileName() (r string, exists bool) {
+	v := m.file_name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFileName returns the old "file_name" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldFileName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFileName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFileName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFileName: %w", err)
+	}
+	return oldValue.FileName, nil
+}
+
+// ResetFileName resets all changes to the "file_name" field.
+func (m *RagDocumentVersionMutation) ResetFileName() {
+	m.file_name = nil
+}
+
+// SetContentHash sets the "content_hash" field.
+func (m *RagDocumentVersionMutation) SetContentHash(s string) {
+	m.content_hash = &s
+}
+
+// ContentHash returns the value of the "content_hash" field in the mutation.
+func (m *RagDocumentVersionMutation) ContentHash() (r string, exists bool) {
+	v := m.content_hash
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldContentHash returns the old "content_hash" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldContentHash(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldContentHash is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldContentHash requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldContentHash: %w", err)
+	}
+	return oldValue.ContentHash, nil
+}
+
+// ResetContentHash resets all changes to the "content_hash" field.
+func (m *RagDocumentVersionMutation) ResetContentHash() {
+	m.content_hash = nil
+}
+
+// SetOriginalMarkdown sets the "original_markdown" field.
+func (m *RagDocumentVersionMutation) SetOriginalMarkdown(s string) {
+	m.original_markdown = &s
+}
+
+// OriginalMarkdown returns the value of the "original_markdown" field in the mutation.
+func (m *RagDocumentVersionMutation) OriginalMarkdown() (r string, exists bool) {
+	v := m.original_markdown
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOriginalMarkdown returns the old "original_markdown" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldOriginalMarkdown(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOriginalMarkdown is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOriginalMarkdown requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOriginalMarkdown: %w", err)
+	}
+	return oldValue.OriginalMarkdown, nil
+}
+
+// ResetOriginalMarkdown resets all changes to the "original_markdown" field.
+func (m *RagDocumentVersionMutation) ResetOriginalMarkdown() {
+	m.original_markdown = nil
+}
+
+// SetSourceBytes sets the "source_bytes" field.
+func (m *RagDocumentVersionMutation) SetSourceBytes(i int64) {
+	m.source_bytes = &i
+	m.addsource_bytes = nil
+}
+
+// SourceBytes returns the value of the "source_bytes" field in the mutation.
+func (m *RagDocumentVersionMutation) SourceBytes() (r int64, exists bool) {
+	v := m.source_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceBytes returns the old "source_bytes" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldSourceBytes(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceBytes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceBytes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceBytes: %w", err)
+	}
+	return oldValue.SourceBytes, nil
+}
+
+// AddSourceBytes adds i to the "source_bytes" field.
+func (m *RagDocumentVersionMutation) AddSourceBytes(i int64) {
+	if m.addsource_bytes != nil {
+		*m.addsource_bytes += i
+	} else {
+		m.addsource_bytes = &i
+	}
+}
+
+// AddedSourceBytes returns the value that was added to the "source_bytes" field in this mutation.
+func (m *RagDocumentVersionMutation) AddedSourceBytes() (r int64, exists bool) {
+	v := m.addsource_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSourceBytes resets all changes to the "source_bytes" field.
+func (m *RagDocumentVersionMutation) ResetSourceBytes() {
+	m.source_bytes = nil
+	m.addsource_bytes = nil
+}
+
+// SetStatus sets the "status" field.
+func (m *RagDocumentVersionMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *RagDocumentVersionMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *RagDocumentVersionMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetStage sets the "stage" field.
+func (m *RagDocumentVersionMutation) SetStage(s string) {
+	m.stage = &s
+}
+
+// Stage returns the value of the "stage" field in the mutation.
+func (m *RagDocumentVersionMutation) Stage() (r string, exists bool) {
+	v := m.stage
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStage returns the old "stage" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldStage(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStage is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStage requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStage: %w", err)
+	}
+	return oldValue.Stage, nil
+}
+
+// ResetStage resets all changes to the "stage" field.
+func (m *RagDocumentVersionMutation) ResetStage() {
+	m.stage = nil
+}
+
+// SetChunkCount sets the "chunk_count" field.
+func (m *RagDocumentVersionMutation) SetChunkCount(i int) {
+	m.chunk_count = &i
+	m.addchunk_count = nil
+}
+
+// ChunkCount returns the value of the "chunk_count" field in the mutation.
+func (m *RagDocumentVersionMutation) ChunkCount() (r int, exists bool) {
+	v := m.chunk_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChunkCount returns the old "chunk_count" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldChunkCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChunkCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChunkCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChunkCount: %w", err)
+	}
+	return oldValue.ChunkCount, nil
+}
+
+// AddChunkCount adds i to the "chunk_count" field.
+func (m *RagDocumentVersionMutation) AddChunkCount(i int) {
+	if m.addchunk_count != nil {
+		*m.addchunk_count += i
+	} else {
+		m.addchunk_count = &i
+	}
+}
+
+// AddedChunkCount returns the value that was added to the "chunk_count" field in this mutation.
+func (m *RagDocumentVersionMutation) AddedChunkCount() (r int, exists bool) {
+	v := m.addchunk_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetChunkCount resets all changes to the "chunk_count" field.
+func (m *RagDocumentVersionMutation) ResetChunkCount() {
+	m.chunk_count = nil
+	m.addchunk_count = nil
+}
+
+// SetEmbeddedChunkCount sets the "embedded_chunk_count" field.
+func (m *RagDocumentVersionMutation) SetEmbeddedChunkCount(i int) {
+	m.embedded_chunk_count = &i
+	m.addembedded_chunk_count = nil
+}
+
+// EmbeddedChunkCount returns the value of the "embedded_chunk_count" field in the mutation.
+func (m *RagDocumentVersionMutation) EmbeddedChunkCount() (r int, exists bool) {
+	v := m.embedded_chunk_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEmbeddedChunkCount returns the old "embedded_chunk_count" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldEmbeddedChunkCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEmbeddedChunkCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEmbeddedChunkCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEmbeddedChunkCount: %w", err)
+	}
+	return oldValue.EmbeddedChunkCount, nil
+}
+
+// AddEmbeddedChunkCount adds i to the "embedded_chunk_count" field.
+func (m *RagDocumentVersionMutation) AddEmbeddedChunkCount(i int) {
+	if m.addembedded_chunk_count != nil {
+		*m.addembedded_chunk_count += i
+	} else {
+		m.addembedded_chunk_count = &i
+	}
+}
+
+// AddedEmbeddedChunkCount returns the value that was added to the "embedded_chunk_count" field in this mutation.
+func (m *RagDocumentVersionMutation) AddedEmbeddedChunkCount() (r int, exists bool) {
+	v := m.addembedded_chunk_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetEmbeddedChunkCount resets all changes to the "embedded_chunk_count" field.
+func (m *RagDocumentVersionMutation) ResetEmbeddedChunkCount() {
+	m.embedded_chunk_count = nil
+	m.addembedded_chunk_count = nil
+}
+
+// SetFailureCode sets the "failure_code" field.
+func (m *RagDocumentVersionMutation) SetFailureCode(s string) {
+	m.failure_code = &s
+}
+
+// FailureCode returns the value of the "failure_code" field in the mutation.
+func (m *RagDocumentVersionMutation) FailureCode() (r string, exists bool) {
+	v := m.failure_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFailureCode returns the old "failure_code" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldFailureCode(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFailureCode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFailureCode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFailureCode: %w", err)
+	}
+	return oldValue.FailureCode, nil
+}
+
+// ClearFailureCode clears the value of the "failure_code" field.
+func (m *RagDocumentVersionMutation) ClearFailureCode() {
+	m.failure_code = nil
+	m.clearedFields[ragdocumentversion.FieldFailureCode] = struct{}{}
+}
+
+// FailureCodeCleared returns if the "failure_code" field was cleared in this mutation.
+func (m *RagDocumentVersionMutation) FailureCodeCleared() bool {
+	_, ok := m.clearedFields[ragdocumentversion.FieldFailureCode]
+	return ok
+}
+
+// ResetFailureCode resets all changes to the "failure_code" field.
+func (m *RagDocumentVersionMutation) ResetFailureCode() {
+	m.failure_code = nil
+	delete(m.clearedFields, ragdocumentversion.FieldFailureCode)
+}
+
+// SetFailureMessage sets the "failure_message" field.
+func (m *RagDocumentVersionMutation) SetFailureMessage(s string) {
+	m.failure_message = &s
+}
+
+// FailureMessage returns the value of the "failure_message" field in the mutation.
+func (m *RagDocumentVersionMutation) FailureMessage() (r string, exists bool) {
+	v := m.failure_message
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFailureMessage returns the old "failure_message" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldFailureMessage(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFailureMessage is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFailureMessage requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFailureMessage: %w", err)
+	}
+	return oldValue.FailureMessage, nil
+}
+
+// ClearFailureMessage clears the value of the "failure_message" field.
+func (m *RagDocumentVersionMutation) ClearFailureMessage() {
+	m.failure_message = nil
+	m.clearedFields[ragdocumentversion.FieldFailureMessage] = struct{}{}
+}
+
+// FailureMessageCleared returns if the "failure_message" field was cleared in this mutation.
+func (m *RagDocumentVersionMutation) FailureMessageCleared() bool {
+	_, ok := m.clearedFields[ragdocumentversion.FieldFailureMessage]
+	return ok
+}
+
+// ResetFailureMessage resets all changes to the "failure_message" field.
+func (m *RagDocumentVersionMutation) ResetFailureMessage() {
+	m.failure_message = nil
+	delete(m.clearedFields, ragdocumentversion.FieldFailureMessage)
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *RagDocumentVersionMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *RagDocumentVersionMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *RagDocumentVersionMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *RagDocumentVersionMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *RagDocumentVersionMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *RagDocumentVersionMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetCompletedAt sets the "completed_at" field.
+func (m *RagDocumentVersionMutation) SetCompletedAt(t time.Time) {
+	m.completed_at = &t
+}
+
+// CompletedAt returns the value of the "completed_at" field in the mutation.
+func (m *RagDocumentVersionMutation) CompletedAt() (r time.Time, exists bool) {
+	v := m.completed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCompletedAt returns the old "completed_at" field's value of the RagDocumentVersion entity.
+// If the RagDocumentVersion object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RagDocumentVersionMutation) OldCompletedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCompletedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCompletedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCompletedAt: %w", err)
+	}
+	return oldValue.CompletedAt, nil
+}
+
+// ClearCompletedAt clears the value of the "completed_at" field.
+func (m *RagDocumentVersionMutation) ClearCompletedAt() {
+	m.completed_at = nil
+	m.clearedFields[ragdocumentversion.FieldCompletedAt] = struct{}{}
+}
+
+// CompletedAtCleared returns if the "completed_at" field was cleared in this mutation.
+func (m *RagDocumentVersionMutation) CompletedAtCleared() bool {
+	_, ok := m.clearedFields[ragdocumentversion.FieldCompletedAt]
+	return ok
+}
+
+// ResetCompletedAt resets all changes to the "completed_at" field.
+func (m *RagDocumentVersionMutation) ResetCompletedAt() {
+	m.completed_at = nil
+	delete(m.clearedFields, ragdocumentversion.FieldCompletedAt)
+}
+
+// ClearDocument clears the "document" edge to the RagDocument entity.
+func (m *RagDocumentVersionMutation) ClearDocument() {
+	m.cleareddocument = true
+	m.clearedFields[ragdocumentversion.FieldDocumentID] = struct{}{}
+}
+
+// DocumentCleared reports if the "document" edge to the RagDocument entity was cleared.
+func (m *RagDocumentVersionMutation) DocumentCleared() bool {
+	return m.cleareddocument
+}
+
+// DocumentIDs returns the "document" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// DocumentID instead. It exists only for internal usage by the builders.
+func (m *RagDocumentVersionMutation) DocumentIDs() (ids []int64) {
+	if id := m.document; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetDocument resets all changes to the "document" edge.
+func (m *RagDocumentVersionMutation) ResetDocument() {
+	m.document = nil
+	m.cleareddocument = false
+}
+
+// AddChunkIDs adds the "chunks" edge to the RagChunk entity by ids.
+func (m *RagDocumentVersionMutation) AddChunkIDs(ids ...int64) {
+	if m.chunks == nil {
+		m.chunks = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.chunks[ids[i]] = struct{}{}
+	}
+}
+
+// ClearChunks clears the "chunks" edge to the RagChunk entity.
+func (m *RagDocumentVersionMutation) ClearChunks() {
+	m.clearedchunks = true
+}
+
+// ChunksCleared reports if the "chunks" edge to the RagChunk entity was cleared.
+func (m *RagDocumentVersionMutation) ChunksCleared() bool {
+	return m.clearedchunks
+}
+
+// RemoveChunkIDs removes the "chunks" edge to the RagChunk entity by IDs.
+func (m *RagDocumentVersionMutation) RemoveChunkIDs(ids ...int64) {
+	if m.removedchunks == nil {
+		m.removedchunks = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.chunks, ids[i])
+		m.removedchunks[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedChunks returns the removed IDs of the "chunks" edge to the RagChunk entity.
+func (m *RagDocumentVersionMutation) RemovedChunksIDs() (ids []int64) {
+	for id := range m.removedchunks {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ChunksIDs returns the "chunks" edge IDs in the mutation.
+func (m *RagDocumentVersionMutation) ChunksIDs() (ids []int64) {
+	for id := range m.chunks {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetChunks resets all changes to the "chunks" edge.
+func (m *RagDocumentVersionMutation) ResetChunks() {
+	m.chunks = nil
+	m.clearedchunks = false
+	m.removedchunks = nil
+}
+
+// Where appends a list predicates to the RagDocumentVersionMutation builder.
+func (m *RagDocumentVersionMutation) Where(ps ...predicate.RagDocumentVersion) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the RagDocumentVersionMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *RagDocumentVersionMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.RagDocumentVersion, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *RagDocumentVersionMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *RagDocumentVersionMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (RagDocumentVersion).
+func (m *RagDocumentVersionMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *RagDocumentVersionMutation) Fields() []string {
+	fields := make([]string, 0, 16)
+	if m.ingestion_id != nil {
+		fields = append(fields, ragdocumentversion.FieldIngestionID)
+	}
+	if m.document != nil {
+		fields = append(fields, ragdocumentversion.FieldDocumentID)
+	}
+	if m.version != nil {
+		fields = append(fields, ragdocumentversion.FieldVersion)
+	}
+	if m.file_name != nil {
+		fields = append(fields, ragdocumentversion.FieldFileName)
+	}
+	if m.content_hash != nil {
+		fields = append(fields, ragdocumentversion.FieldContentHash)
+	}
+	if m.original_markdown != nil {
+		fields = append(fields, ragdocumentversion.FieldOriginalMarkdown)
+	}
+	if m.source_bytes != nil {
+		fields = append(fields, ragdocumentversion.FieldSourceBytes)
+	}
+	if m.status != nil {
+		fields = append(fields, ragdocumentversion.FieldStatus)
+	}
+	if m.stage != nil {
+		fields = append(fields, ragdocumentversion.FieldStage)
+	}
+	if m.chunk_count != nil {
+		fields = append(fields, ragdocumentversion.FieldChunkCount)
+	}
+	if m.embedded_chunk_count != nil {
+		fields = append(fields, ragdocumentversion.FieldEmbeddedChunkCount)
+	}
+	if m.failure_code != nil {
+		fields = append(fields, ragdocumentversion.FieldFailureCode)
+	}
+	if m.failure_message != nil {
+		fields = append(fields, ragdocumentversion.FieldFailureMessage)
+	}
+	if m.created_at != nil {
+		fields = append(fields, ragdocumentversion.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, ragdocumentversion.FieldUpdatedAt)
+	}
+	if m.completed_at != nil {
+		fields = append(fields, ragdocumentversion.FieldCompletedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *RagDocumentVersionMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case ragdocumentversion.FieldIngestionID:
+		return m.IngestionID()
+	case ragdocumentversion.FieldDocumentID:
+		return m.DocumentID()
+	case ragdocumentversion.FieldVersion:
+		return m.Version()
+	case ragdocumentversion.FieldFileName:
+		return m.FileName()
+	case ragdocumentversion.FieldContentHash:
+		return m.ContentHash()
+	case ragdocumentversion.FieldOriginalMarkdown:
+		return m.OriginalMarkdown()
+	case ragdocumentversion.FieldSourceBytes:
+		return m.SourceBytes()
+	case ragdocumentversion.FieldStatus:
+		return m.Status()
+	case ragdocumentversion.FieldStage:
+		return m.Stage()
+	case ragdocumentversion.FieldChunkCount:
+		return m.ChunkCount()
+	case ragdocumentversion.FieldEmbeddedChunkCount:
+		return m.EmbeddedChunkCount()
+	case ragdocumentversion.FieldFailureCode:
+		return m.FailureCode()
+	case ragdocumentversion.FieldFailureMessage:
+		return m.FailureMessage()
+	case ragdocumentversion.FieldCreatedAt:
+		return m.CreatedAt()
+	case ragdocumentversion.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case ragdocumentversion.FieldCompletedAt:
+		return m.CompletedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *RagDocumentVersionMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case ragdocumentversion.FieldIngestionID:
+		return m.OldIngestionID(ctx)
+	case ragdocumentversion.FieldDocumentID:
+		return m.OldDocumentID(ctx)
+	case ragdocumentversion.FieldVersion:
+		return m.OldVersion(ctx)
+	case ragdocumentversion.FieldFileName:
+		return m.OldFileName(ctx)
+	case ragdocumentversion.FieldContentHash:
+		return m.OldContentHash(ctx)
+	case ragdocumentversion.FieldOriginalMarkdown:
+		return m.OldOriginalMarkdown(ctx)
+	case ragdocumentversion.FieldSourceBytes:
+		return m.OldSourceBytes(ctx)
+	case ragdocumentversion.FieldStatus:
+		return m.OldStatus(ctx)
+	case ragdocumentversion.FieldStage:
+		return m.OldStage(ctx)
+	case ragdocumentversion.FieldChunkCount:
+		return m.OldChunkCount(ctx)
+	case ragdocumentversion.FieldEmbeddedChunkCount:
+		return m.OldEmbeddedChunkCount(ctx)
+	case ragdocumentversion.FieldFailureCode:
+		return m.OldFailureCode(ctx)
+	case ragdocumentversion.FieldFailureMessage:
+		return m.OldFailureMessage(ctx)
+	case ragdocumentversion.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case ragdocumentversion.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case ragdocumentversion.FieldCompletedAt:
+		return m.OldCompletedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown RagDocumentVersion field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RagDocumentVersionMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case ragdocumentversion.FieldIngestionID:
+		v, ok := value.(uuid.UUID)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIngestionID(v)
+		return nil
+	case ragdocumentversion.FieldDocumentID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDocumentID(v)
+		return nil
+	case ragdocumentversion.FieldVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
+	case ragdocumentversion.FieldFileName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFileName(v)
+		return nil
+	case ragdocumentversion.FieldContentHash:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetContentHash(v)
+		return nil
+	case ragdocumentversion.FieldOriginalMarkdown:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOriginalMarkdown(v)
+		return nil
+	case ragdocumentversion.FieldSourceBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceBytes(v)
+		return nil
+	case ragdocumentversion.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case ragdocumentversion.FieldStage:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStage(v)
+		return nil
+	case ragdocumentversion.FieldChunkCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChunkCount(v)
+		return nil
+	case ragdocumentversion.FieldEmbeddedChunkCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEmbeddedChunkCount(v)
+		return nil
+	case ragdocumentversion.FieldFailureCode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFailureCode(v)
+		return nil
+	case ragdocumentversion.FieldFailureMessage:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFailureMessage(v)
+		return nil
+	case ragdocumentversion.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case ragdocumentversion.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case ragdocumentversion.FieldCompletedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCompletedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocumentVersion field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *RagDocumentVersionMutation) AddedFields() []string {
+	var fields []string
+	if m.addversion != nil {
+		fields = append(fields, ragdocumentversion.FieldVersion)
+	}
+	if m.addsource_bytes != nil {
+		fields = append(fields, ragdocumentversion.FieldSourceBytes)
+	}
+	if m.addchunk_count != nil {
+		fields = append(fields, ragdocumentversion.FieldChunkCount)
+	}
+	if m.addembedded_chunk_count != nil {
+		fields = append(fields, ragdocumentversion.FieldEmbeddedChunkCount)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *RagDocumentVersionMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case ragdocumentversion.FieldVersion:
+		return m.AddedVersion()
+	case ragdocumentversion.FieldSourceBytes:
+		return m.AddedSourceBytes()
+	case ragdocumentversion.FieldChunkCount:
+		return m.AddedChunkCount()
+	case ragdocumentversion.FieldEmbeddedChunkCount:
+		return m.AddedEmbeddedChunkCount()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RagDocumentVersionMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case ragdocumentversion.FieldVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVersion(v)
+		return nil
+	case ragdocumentversion.FieldSourceBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSourceBytes(v)
+		return nil
+	case ragdocumentversion.FieldChunkCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddChunkCount(v)
+		return nil
+	case ragdocumentversion.FieldEmbeddedChunkCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddEmbeddedChunkCount(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocumentVersion numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *RagDocumentVersionMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(ragdocumentversion.FieldFailureCode) {
+		fields = append(fields, ragdocumentversion.FieldFailureCode)
+	}
+	if m.FieldCleared(ragdocumentversion.FieldFailureMessage) {
+		fields = append(fields, ragdocumentversion.FieldFailureMessage)
+	}
+	if m.FieldCleared(ragdocumentversion.FieldCompletedAt) {
+		fields = append(fields, ragdocumentversion.FieldCompletedAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *RagDocumentVersionMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *RagDocumentVersionMutation) ClearField(name string) error {
+	switch name {
+	case ragdocumentversion.FieldFailureCode:
+		m.ClearFailureCode()
+		return nil
+	case ragdocumentversion.FieldFailureMessage:
+		m.ClearFailureMessage()
+		return nil
+	case ragdocumentversion.FieldCompletedAt:
+		m.ClearCompletedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocumentVersion nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *RagDocumentVersionMutation) ResetField(name string) error {
+	switch name {
+	case ragdocumentversion.FieldIngestionID:
+		m.ResetIngestionID()
+		return nil
+	case ragdocumentversion.FieldDocumentID:
+		m.ResetDocumentID()
+		return nil
+	case ragdocumentversion.FieldVersion:
+		m.ResetVersion()
+		return nil
+	case ragdocumentversion.FieldFileName:
+		m.ResetFileName()
+		return nil
+	case ragdocumentversion.FieldContentHash:
+		m.ResetContentHash()
+		return nil
+	case ragdocumentversion.FieldOriginalMarkdown:
+		m.ResetOriginalMarkdown()
+		return nil
+	case ragdocumentversion.FieldSourceBytes:
+		m.ResetSourceBytes()
+		return nil
+	case ragdocumentversion.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case ragdocumentversion.FieldStage:
+		m.ResetStage()
+		return nil
+	case ragdocumentversion.FieldChunkCount:
+		m.ResetChunkCount()
+		return nil
+	case ragdocumentversion.FieldEmbeddedChunkCount:
+		m.ResetEmbeddedChunkCount()
+		return nil
+	case ragdocumentversion.FieldFailureCode:
+		m.ResetFailureCode()
+		return nil
+	case ragdocumentversion.FieldFailureMessage:
+		m.ResetFailureMessage()
+		return nil
+	case ragdocumentversion.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case ragdocumentversion.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case ragdocumentversion.FieldCompletedAt:
+		m.ResetCompletedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocumentVersion field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *RagDocumentVersionMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.document != nil {
+		edges = append(edges, ragdocumentversion.EdgeDocument)
+	}
+	if m.chunks != nil {
+		edges = append(edges, ragdocumentversion.EdgeChunks)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *RagDocumentVersionMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case ragdocumentversion.EdgeDocument:
+		if id := m.document; id != nil {
+			return []ent.Value{*id}
+		}
+	case ragdocumentversion.EdgeChunks:
+		ids := make([]ent.Value, 0, len(m.chunks))
+		for id := range m.chunks {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *RagDocumentVersionMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.removedchunks != nil {
+		edges = append(edges, ragdocumentversion.EdgeChunks)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *RagDocumentVersionMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case ragdocumentversion.EdgeChunks:
+		ids := make([]ent.Value, 0, len(m.removedchunks))
+		for id := range m.removedchunks {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *RagDocumentVersionMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.cleareddocument {
+		edges = append(edges, ragdocumentversion.EdgeDocument)
+	}
+	if m.clearedchunks {
+		edges = append(edges, ragdocumentversion.EdgeChunks)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *RagDocumentVersionMutation) EdgeCleared(name string) bool {
+	switch name {
+	case ragdocumentversion.EdgeDocument:
+		return m.cleareddocument
+	case ragdocumentversion.EdgeChunks:
+		return m.clearedchunks
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *RagDocumentVersionMutation) ClearEdge(name string) error {
+	switch name {
+	case ragdocumentversion.EdgeDocument:
+		m.ClearDocument()
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocumentVersion unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *RagDocumentVersionMutation) ResetEdge(name string) error {
+	switch name {
+	case ragdocumentversion.EdgeDocument:
+		m.ResetDocument()
+		return nil
+	case ragdocumentversion.EdgeChunks:
+		m.ResetChunks()
+		return nil
+	}
+	return fmt.Errorf("unknown RagDocumentVersion edge %s", name)
+}
 
 // RagUserMutation represents an operation that mutates the RagUser nodes in the graph.
 type RagUserMutation struct {

@@ -13,68 +13,92 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/PolarishT/sales-agent/ent/predicate"
-	"github.com/PolarishT/sales-agent/ent/raguser"
+	"github.com/PolarishT/sales-agent/ent/ragchunk"
+	"github.com/PolarishT/sales-agent/ent/ragdocumentversion"
 )
 
-// RagUserQuery is the builder for querying RagUser entities.
-type RagUserQuery struct {
+// RagChunkQuery is the builder for querying RagChunk entities.
+type RagChunkQuery struct {
 	config
-	ctx        *QueryContext
-	order      []raguser.OrderOption
-	inters     []Interceptor
-	predicates []predicate.RagUser
-	modifiers  []func(*sql.Selector)
+	ctx                 *QueryContext
+	order               []ragchunk.OrderOption
+	inters              []Interceptor
+	predicates          []predicate.RagChunk
+	withDocumentVersion *RagDocumentVersionQuery
+	modifiers           []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
 }
 
-// Where adds a new predicate for the RagUserQuery builder.
-func (_q *RagUserQuery) Where(ps ...predicate.RagUser) *RagUserQuery {
+// Where adds a new predicate for the RagChunkQuery builder.
+func (_q *RagChunkQuery) Where(ps ...predicate.RagChunk) *RagChunkQuery {
 	_q.predicates = append(_q.predicates, ps...)
 	return _q
 }
 
 // Limit the number of records to be returned by this query.
-func (_q *RagUserQuery) Limit(limit int) *RagUserQuery {
+func (_q *RagChunkQuery) Limit(limit int) *RagChunkQuery {
 	_q.ctx.Limit = &limit
 	return _q
 }
 
 // Offset to start from.
-func (_q *RagUserQuery) Offset(offset int) *RagUserQuery {
+func (_q *RagChunkQuery) Offset(offset int) *RagChunkQuery {
 	_q.ctx.Offset = &offset
 	return _q
 }
 
 // Unique configures the query builder to filter duplicate records on query.
 // By default, unique is set to true, and can be disabled using this method.
-func (_q *RagUserQuery) Unique(unique bool) *RagUserQuery {
+func (_q *RagChunkQuery) Unique(unique bool) *RagChunkQuery {
 	_q.ctx.Unique = &unique
 	return _q
 }
 
 // Order specifies how the records should be ordered.
-func (_q *RagUserQuery) Order(o ...raguser.OrderOption) *RagUserQuery {
+func (_q *RagChunkQuery) Order(o ...ragchunk.OrderOption) *RagChunkQuery {
 	_q.order = append(_q.order, o...)
 	return _q
 }
 
-// First returns the first RagUser entity from the query.
-// Returns a *NotFoundError when no RagUser was found.
-func (_q *RagUserQuery) First(ctx context.Context) (*RagUser, error) {
+// QueryDocumentVersion chains the current query on the "document_version" edge.
+func (_q *RagChunkQuery) QueryDocumentVersion() *RagDocumentVersionQuery {
+	query := (&RagDocumentVersionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(ragchunk.Table, ragchunk.FieldID, selector),
+			sqlgraph.To(ragdocumentversion.Table, ragdocumentversion.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, ragchunk.DocumentVersionTable, ragchunk.DocumentVersionColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// First returns the first RagChunk entity from the query.
+// Returns a *NotFoundError when no RagChunk was found.
+func (_q *RagChunkQuery) First(ctx context.Context) (*RagChunk, error) {
 	nodes, err := _q.Limit(1).All(setContextOp(ctx, _q.ctx, ent.OpQueryFirst))
 	if err != nil {
 		return nil, err
 	}
 	if len(nodes) == 0 {
-		return nil, &NotFoundError{raguser.Label}
+		return nil, &NotFoundError{ragchunk.Label}
 	}
 	return nodes[0], nil
 }
 
 // FirstX is like First, but panics if an error occurs.
-func (_q *RagUserQuery) FirstX(ctx context.Context) *RagUser {
+func (_q *RagChunkQuery) FirstX(ctx context.Context) *RagChunk {
 	node, err := _q.First(ctx)
 	if err != nil && !IsNotFound(err) {
 		panic(err)
@@ -82,22 +106,22 @@ func (_q *RagUserQuery) FirstX(ctx context.Context) *RagUser {
 	return node
 }
 
-// FirstID returns the first RagUser ID from the query.
-// Returns a *NotFoundError when no RagUser ID was found.
-func (_q *RagUserQuery) FirstID(ctx context.Context) (id int64, err error) {
+// FirstID returns the first RagChunk ID from the query.
+// Returns a *NotFoundError when no RagChunk ID was found.
+func (_q *RagChunkQuery) FirstID(ctx context.Context) (id int64, err error) {
 	var ids []int64
 	if ids, err = _q.Limit(1).IDs(setContextOp(ctx, _q.ctx, ent.OpQueryFirstID)); err != nil {
 		return
 	}
 	if len(ids) == 0 {
-		err = &NotFoundError{raguser.Label}
+		err = &NotFoundError{ragchunk.Label}
 		return
 	}
 	return ids[0], nil
 }
 
 // FirstIDX is like FirstID, but panics if an error occurs.
-func (_q *RagUserQuery) FirstIDX(ctx context.Context) int64 {
+func (_q *RagChunkQuery) FirstIDX(ctx context.Context) int64 {
 	id, err := _q.FirstID(ctx)
 	if err != nil && !IsNotFound(err) {
 		panic(err)
@@ -105,10 +129,10 @@ func (_q *RagUserQuery) FirstIDX(ctx context.Context) int64 {
 	return id
 }
 
-// Only returns a single RagUser entity found by the query, ensuring it only returns one.
-// Returns a *NotSingularError when more than one RagUser entity is found.
-// Returns a *NotFoundError when no RagUser entities are found.
-func (_q *RagUserQuery) Only(ctx context.Context) (*RagUser, error) {
+// Only returns a single RagChunk entity found by the query, ensuring it only returns one.
+// Returns a *NotSingularError when more than one RagChunk entity is found.
+// Returns a *NotFoundError when no RagChunk entities are found.
+func (_q *RagChunkQuery) Only(ctx context.Context) (*RagChunk, error) {
 	nodes, err := _q.Limit(2).All(setContextOp(ctx, _q.ctx, ent.OpQueryOnly))
 	if err != nil {
 		return nil, err
@@ -117,14 +141,14 @@ func (_q *RagUserQuery) Only(ctx context.Context) (*RagUser, error) {
 	case 1:
 		return nodes[0], nil
 	case 0:
-		return nil, &NotFoundError{raguser.Label}
+		return nil, &NotFoundError{ragchunk.Label}
 	default:
-		return nil, &NotSingularError{raguser.Label}
+		return nil, &NotSingularError{ragchunk.Label}
 	}
 }
 
 // OnlyX is like Only, but panics if an error occurs.
-func (_q *RagUserQuery) OnlyX(ctx context.Context) *RagUser {
+func (_q *RagChunkQuery) OnlyX(ctx context.Context) *RagChunk {
 	node, err := _q.Only(ctx)
 	if err != nil {
 		panic(err)
@@ -132,10 +156,10 @@ func (_q *RagUserQuery) OnlyX(ctx context.Context) *RagUser {
 	return node
 }
 
-// OnlyID is like Only, but returns the only RagUser ID in the query.
-// Returns a *NotSingularError when more than one RagUser ID is found.
+// OnlyID is like Only, but returns the only RagChunk ID in the query.
+// Returns a *NotSingularError when more than one RagChunk ID is found.
 // Returns a *NotFoundError when no entities are found.
-func (_q *RagUserQuery) OnlyID(ctx context.Context) (id int64, err error) {
+func (_q *RagChunkQuery) OnlyID(ctx context.Context) (id int64, err error) {
 	var ids []int64
 	if ids, err = _q.Limit(2).IDs(setContextOp(ctx, _q.ctx, ent.OpQueryOnlyID)); err != nil {
 		return
@@ -144,15 +168,15 @@ func (_q *RagUserQuery) OnlyID(ctx context.Context) (id int64, err error) {
 	case 1:
 		id = ids[0]
 	case 0:
-		err = &NotFoundError{raguser.Label}
+		err = &NotFoundError{ragchunk.Label}
 	default:
-		err = &NotSingularError{raguser.Label}
+		err = &NotSingularError{ragchunk.Label}
 	}
 	return
 }
 
 // OnlyIDX is like OnlyID, but panics if an error occurs.
-func (_q *RagUserQuery) OnlyIDX(ctx context.Context) int64 {
+func (_q *RagChunkQuery) OnlyIDX(ctx context.Context) int64 {
 	id, err := _q.OnlyID(ctx)
 	if err != nil {
 		panic(err)
@@ -160,18 +184,18 @@ func (_q *RagUserQuery) OnlyIDX(ctx context.Context) int64 {
 	return id
 }
 
-// All executes the query and returns a list of RagUsers.
-func (_q *RagUserQuery) All(ctx context.Context) ([]*RagUser, error) {
+// All executes the query and returns a list of RagChunks.
+func (_q *RagChunkQuery) All(ctx context.Context) ([]*RagChunk, error) {
 	ctx = setContextOp(ctx, _q.ctx, ent.OpQueryAll)
 	if err := _q.prepareQuery(ctx); err != nil {
 		return nil, err
 	}
-	qr := querierAll[[]*RagUser, *RagUserQuery]()
-	return withInterceptors[[]*RagUser](ctx, _q, qr, _q.inters)
+	qr := querierAll[[]*RagChunk, *RagChunkQuery]()
+	return withInterceptors[[]*RagChunk](ctx, _q, qr, _q.inters)
 }
 
 // AllX is like All, but panics if an error occurs.
-func (_q *RagUserQuery) AllX(ctx context.Context) []*RagUser {
+func (_q *RagChunkQuery) AllX(ctx context.Context) []*RagChunk {
 	nodes, err := _q.All(ctx)
 	if err != nil {
 		panic(err)
@@ -179,20 +203,20 @@ func (_q *RagUserQuery) AllX(ctx context.Context) []*RagUser {
 	return nodes
 }
 
-// IDs executes the query and returns a list of RagUser IDs.
-func (_q *RagUserQuery) IDs(ctx context.Context) (ids []int64, err error) {
+// IDs executes the query and returns a list of RagChunk IDs.
+func (_q *RagChunkQuery) IDs(ctx context.Context) (ids []int64, err error) {
 	if _q.ctx.Unique == nil && _q.path != nil {
 		_q.Unique(true)
 	}
 	ctx = setContextOp(ctx, _q.ctx, ent.OpQueryIDs)
-	if err = _q.Select(raguser.FieldID).Scan(ctx, &ids); err != nil {
+	if err = _q.Select(ragchunk.FieldID).Scan(ctx, &ids); err != nil {
 		return nil, err
 	}
 	return ids, nil
 }
 
 // IDsX is like IDs, but panics if an error occurs.
-func (_q *RagUserQuery) IDsX(ctx context.Context) []int64 {
+func (_q *RagChunkQuery) IDsX(ctx context.Context) []int64 {
 	ids, err := _q.IDs(ctx)
 	if err != nil {
 		panic(err)
@@ -201,16 +225,16 @@ func (_q *RagUserQuery) IDsX(ctx context.Context) []int64 {
 }
 
 // Count returns the count of the given query.
-func (_q *RagUserQuery) Count(ctx context.Context) (int, error) {
+func (_q *RagChunkQuery) Count(ctx context.Context) (int, error) {
 	ctx = setContextOp(ctx, _q.ctx, ent.OpQueryCount)
 	if err := _q.prepareQuery(ctx); err != nil {
 		return 0, err
 	}
-	return withInterceptors[int](ctx, _q, querierCount[*RagUserQuery](), _q.inters)
+	return withInterceptors[int](ctx, _q, querierCount[*RagChunkQuery](), _q.inters)
 }
 
 // CountX is like Count, but panics if an error occurs.
-func (_q *RagUserQuery) CountX(ctx context.Context) int {
+func (_q *RagChunkQuery) CountX(ctx context.Context) int {
 	count, err := _q.Count(ctx)
 	if err != nil {
 		panic(err)
@@ -219,7 +243,7 @@ func (_q *RagUserQuery) CountX(ctx context.Context) int {
 }
 
 // Exist returns true if the query has elements in the graph.
-func (_q *RagUserQuery) Exist(ctx context.Context) (bool, error) {
+func (_q *RagChunkQuery) Exist(ctx context.Context) (bool, error) {
 	ctx = setContextOp(ctx, _q.ctx, ent.OpQueryExist)
 	switch _, err := _q.FirstID(ctx); {
 	case IsNotFound(err):
@@ -232,7 +256,7 @@ func (_q *RagUserQuery) Exist(ctx context.Context) (bool, error) {
 }
 
 // ExistX is like Exist, but panics if an error occurs.
-func (_q *RagUserQuery) ExistX(ctx context.Context) bool {
+func (_q *RagChunkQuery) ExistX(ctx context.Context) bool {
 	exist, err := _q.Exist(ctx)
 	if err != nil {
 		panic(err)
@@ -240,22 +264,34 @@ func (_q *RagUserQuery) ExistX(ctx context.Context) bool {
 	return exist
 }
 
-// Clone returns a duplicate of the RagUserQuery builder, including all associated steps. It can be
+// Clone returns a duplicate of the RagChunkQuery builder, including all associated steps. It can be
 // used to prepare common query builders and use them differently after the clone is made.
-func (_q *RagUserQuery) Clone() *RagUserQuery {
+func (_q *RagChunkQuery) Clone() *RagChunkQuery {
 	if _q == nil {
 		return nil
 	}
-	return &RagUserQuery{
-		config:     _q.config,
-		ctx:        _q.ctx.Clone(),
-		order:      append([]raguser.OrderOption{}, _q.order...),
-		inters:     append([]Interceptor{}, _q.inters...),
-		predicates: append([]predicate.RagUser{}, _q.predicates...),
+	return &RagChunkQuery{
+		config:              _q.config,
+		ctx:                 _q.ctx.Clone(),
+		order:               append([]ragchunk.OrderOption{}, _q.order...),
+		inters:              append([]Interceptor{}, _q.inters...),
+		predicates:          append([]predicate.RagChunk{}, _q.predicates...),
+		withDocumentVersion: _q.withDocumentVersion.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithDocumentVersion tells the query-builder to eager-load the nodes that are connected to
+// the "document_version" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *RagChunkQuery) WithDocumentVersion(opts ...func(*RagDocumentVersionQuery)) *RagChunkQuery {
+	query := (&RagDocumentVersionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withDocumentVersion = query
+	return _q
 }
 
 // GroupBy is used to group vertices by one or more fields/columns.
@@ -264,19 +300,19 @@ func (_q *RagUserQuery) Clone() *RagUserQuery {
 // Example:
 //
 //	var v []struct {
-//		UserID string `json:"user_id,omitempty"`
+//		DocumentVersionID int64 `json:"document_version_id,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
-//	client.RagUser.Query().
-//		GroupBy(raguser.FieldUserID).
+//	client.RagChunk.Query().
+//		GroupBy(ragchunk.FieldDocumentVersionID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
-func (_q *RagUserQuery) GroupBy(field string, fields ...string) *RagUserGroupBy {
+func (_q *RagChunkQuery) GroupBy(field string, fields ...string) *RagChunkGroupBy {
 	_q.ctx.Fields = append([]string{field}, fields...)
-	grbuild := &RagUserGroupBy{build: _q}
+	grbuild := &RagChunkGroupBy{build: _q}
 	grbuild.flds = &_q.ctx.Fields
-	grbuild.label = raguser.Label
+	grbuild.label = ragchunk.Label
 	grbuild.scan = grbuild.Scan
 	return grbuild
 }
@@ -287,26 +323,26 @@ func (_q *RagUserQuery) GroupBy(field string, fields ...string) *RagUserGroupBy 
 // Example:
 //
 //	var v []struct {
-//		UserID string `json:"user_id,omitempty"`
+//		DocumentVersionID int64 `json:"document_version_id,omitempty"`
 //	}
 //
-//	client.RagUser.Query().
-//		Select(raguser.FieldUserID).
+//	client.RagChunk.Query().
+//		Select(ragchunk.FieldDocumentVersionID).
 //		Scan(ctx, &v)
-func (_q *RagUserQuery) Select(fields ...string) *RagUserSelect {
+func (_q *RagChunkQuery) Select(fields ...string) *RagChunkSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)
-	sbuild := &RagUserSelect{RagUserQuery: _q}
-	sbuild.label = raguser.Label
+	sbuild := &RagChunkSelect{RagChunkQuery: _q}
+	sbuild.label = ragchunk.Label
 	sbuild.flds, sbuild.scan = &_q.ctx.Fields, sbuild.Scan
 	return sbuild
 }
 
-// Aggregate returns a RagUserSelect configured with the given aggregations.
-func (_q *RagUserQuery) Aggregate(fns ...AggregateFunc) *RagUserSelect {
+// Aggregate returns a RagChunkSelect configured with the given aggregations.
+func (_q *RagChunkQuery) Aggregate(fns ...AggregateFunc) *RagChunkSelect {
 	return _q.Select().Aggregate(fns...)
 }
 
-func (_q *RagUserQuery) prepareQuery(ctx context.Context) error {
+func (_q *RagChunkQuery) prepareQuery(ctx context.Context) error {
 	for _, inter := range _q.inters {
 		if inter == nil {
 			return fmt.Errorf("ent: uninitialized interceptor (forgotten import ent/runtime?)")
@@ -318,7 +354,7 @@ func (_q *RagUserQuery) prepareQuery(ctx context.Context) error {
 		}
 	}
 	for _, f := range _q.ctx.Fields {
-		if !raguser.ValidColumn(f) {
+		if !ragchunk.ValidColumn(f) {
 			return &ValidationError{Name: f, err: fmt.Errorf("ent: invalid field %q for query", f)}
 		}
 	}
@@ -332,17 +368,21 @@ func (_q *RagUserQuery) prepareQuery(ctx context.Context) error {
 	return nil
 }
 
-func (_q *RagUserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*RagUser, error) {
+func (_q *RagChunkQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*RagChunk, error) {
 	var (
-		nodes = []*RagUser{}
-		_spec = _q.querySpec()
+		nodes       = []*RagChunk{}
+		_spec       = _q.querySpec()
+		loadedTypes = [1]bool{
+			_q.withDocumentVersion != nil,
+		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
-		return (*RagUser).scanValues(nil, columns)
+		return (*RagChunk).scanValues(nil, columns)
 	}
 	_spec.Assign = func(columns []string, values []any) error {
-		node := &RagUser{config: _q.config}
+		node := &RagChunk{config: _q.config}
 		nodes = append(nodes, node)
+		node.Edges.loadedTypes = loadedTypes
 		return node.assignValues(columns, values)
 	}
 	if len(_q.modifiers) > 0 {
@@ -357,10 +397,46 @@ func (_q *RagUserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*RagU
 	if len(nodes) == 0 {
 		return nodes, nil
 	}
+	if query := _q.withDocumentVersion; query != nil {
+		if err := _q.loadDocumentVersion(ctx, query, nodes, nil,
+			func(n *RagChunk, e *RagDocumentVersion) { n.Edges.DocumentVersion = e }); err != nil {
+			return nil, err
+		}
+	}
 	return nodes, nil
 }
 
-func (_q *RagUserQuery) sqlCount(ctx context.Context) (int, error) {
+func (_q *RagChunkQuery) loadDocumentVersion(ctx context.Context, query *RagDocumentVersionQuery, nodes []*RagChunk, init func(*RagChunk), assign func(*RagChunk, *RagDocumentVersion)) error {
+	ids := make([]int64, 0, len(nodes))
+	nodeids := make(map[int64][]*RagChunk)
+	for i := range nodes {
+		fk := nodes[i].DocumentVersionID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(ragdocumentversion.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "document_version_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
+
+func (_q *RagChunkQuery) sqlCount(ctx context.Context) (int, error) {
 	_spec := _q.querySpec()
 	if len(_q.modifiers) > 0 {
 		_spec.Modifiers = _q.modifiers
@@ -372,8 +448,8 @@ func (_q *RagUserQuery) sqlCount(ctx context.Context) (int, error) {
 	return sqlgraph.CountNodes(ctx, _q.driver, _spec)
 }
 
-func (_q *RagUserQuery) querySpec() *sqlgraph.QuerySpec {
-	_spec := sqlgraph.NewQuerySpec(raguser.Table, raguser.Columns, sqlgraph.NewFieldSpec(raguser.FieldID, field.TypeInt64))
+func (_q *RagChunkQuery) querySpec() *sqlgraph.QuerySpec {
+	_spec := sqlgraph.NewQuerySpec(ragchunk.Table, ragchunk.Columns, sqlgraph.NewFieldSpec(ragchunk.FieldID, field.TypeInt64))
 	_spec.From = _q.sql
 	if unique := _q.ctx.Unique; unique != nil {
 		_spec.Unique = *unique
@@ -382,11 +458,14 @@ func (_q *RagUserQuery) querySpec() *sqlgraph.QuerySpec {
 	}
 	if fields := _q.ctx.Fields; len(fields) > 0 {
 		_spec.Node.Columns = make([]string, 0, len(fields))
-		_spec.Node.Columns = append(_spec.Node.Columns, raguser.FieldID)
+		_spec.Node.Columns = append(_spec.Node.Columns, ragchunk.FieldID)
 		for i := range fields {
-			if fields[i] != raguser.FieldID {
+			if fields[i] != ragchunk.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if _q.withDocumentVersion != nil {
+			_spec.Node.AddColumnOnce(ragchunk.FieldDocumentVersionID)
 		}
 	}
 	if ps := _q.predicates; len(ps) > 0 {
@@ -412,12 +491,12 @@ func (_q *RagUserQuery) querySpec() *sqlgraph.QuerySpec {
 	return _spec
 }
 
-func (_q *RagUserQuery) sqlQuery(ctx context.Context) *sql.Selector {
+func (_q *RagChunkQuery) sqlQuery(ctx context.Context) *sql.Selector {
 	builder := sql.Dialect(_q.driver.Dialect())
-	t1 := builder.Table(raguser.Table)
+	t1 := builder.Table(ragchunk.Table)
 	columns := _q.ctx.Fields
 	if len(columns) == 0 {
-		columns = raguser.Columns
+		columns = ragchunk.Columns
 	}
 	selector := builder.Select(t1.Columns(columns...)...).From(t1)
 	if _q.sql != nil {
@@ -450,7 +529,7 @@ func (_q *RagUserQuery) sqlQuery(ctx context.Context) *sql.Selector {
 // ForUpdate locks the selected rows against concurrent updates, and prevent them from being
 // updated, deleted or "selected ... for update" by other sessions, until the transaction is
 // either committed or rolled-back.
-func (_q *RagUserQuery) ForUpdate(opts ...sql.LockOption) *RagUserQuery {
+func (_q *RagChunkQuery) ForUpdate(opts ...sql.LockOption) *RagChunkQuery {
 	if _q.driver.Dialect() == dialect.Postgres {
 		_q.Unique(false)
 	}
@@ -463,7 +542,7 @@ func (_q *RagUserQuery) ForUpdate(opts ...sql.LockOption) *RagUserQuery {
 // ForShare behaves similarly to ForUpdate, except that it acquires a shared mode lock
 // on any rows that are read. Other sessions can read the rows, but cannot modify them
 // until your transaction commits.
-func (_q *RagUserQuery) ForShare(opts ...sql.LockOption) *RagUserQuery {
+func (_q *RagChunkQuery) ForShare(opts ...sql.LockOption) *RagChunkQuery {
 	if _q.driver.Dialect() == dialect.Postgres {
 		_q.Unique(false)
 	}
@@ -473,28 +552,28 @@ func (_q *RagUserQuery) ForShare(opts ...sql.LockOption) *RagUserQuery {
 	return _q
 }
 
-// RagUserGroupBy is the group-by builder for RagUser entities.
-type RagUserGroupBy struct {
+// RagChunkGroupBy is the group-by builder for RagChunk entities.
+type RagChunkGroupBy struct {
 	selector
-	build *RagUserQuery
+	build *RagChunkQuery
 }
 
 // Aggregate adds the given aggregation functions to the group-by query.
-func (_g *RagUserGroupBy) Aggregate(fns ...AggregateFunc) *RagUserGroupBy {
+func (_g *RagChunkGroupBy) Aggregate(fns ...AggregateFunc) *RagChunkGroupBy {
 	_g.fns = append(_g.fns, fns...)
 	return _g
 }
 
 // Scan applies the selector query and scans the result into the given value.
-func (_g *RagUserGroupBy) Scan(ctx context.Context, v any) error {
+func (_g *RagChunkGroupBy) Scan(ctx context.Context, v any) error {
 	ctx = setContextOp(ctx, _g.build.ctx, ent.OpQueryGroupBy)
 	if err := _g.build.prepareQuery(ctx); err != nil {
 		return err
 	}
-	return scanWithInterceptors[*RagUserQuery, *RagUserGroupBy](ctx, _g.build, _g, _g.build.inters, v)
+	return scanWithInterceptors[*RagChunkQuery, *RagChunkGroupBy](ctx, _g.build, _g, _g.build.inters, v)
 }
 
-func (_g *RagUserGroupBy) sqlScan(ctx context.Context, root *RagUserQuery, v any) error {
+func (_g *RagChunkGroupBy) sqlScan(ctx context.Context, root *RagChunkQuery, v any) error {
 	selector := root.sqlQuery(ctx).Select()
 	aggregation := make([]string, 0, len(_g.fns))
 	for _, fn := range _g.fns {
@@ -521,28 +600,28 @@ func (_g *RagUserGroupBy) sqlScan(ctx context.Context, root *RagUserQuery, v any
 	return sql.ScanSlice(rows, v)
 }
 
-// RagUserSelect is the builder for selecting fields of RagUser entities.
-type RagUserSelect struct {
-	*RagUserQuery
+// RagChunkSelect is the builder for selecting fields of RagChunk entities.
+type RagChunkSelect struct {
+	*RagChunkQuery
 	selector
 }
 
 // Aggregate adds the given aggregation functions to the selector query.
-func (_s *RagUserSelect) Aggregate(fns ...AggregateFunc) *RagUserSelect {
+func (_s *RagChunkSelect) Aggregate(fns ...AggregateFunc) *RagChunkSelect {
 	_s.fns = append(_s.fns, fns...)
 	return _s
 }
 
 // Scan applies the selector query and scans the result into the given value.
-func (_s *RagUserSelect) Scan(ctx context.Context, v any) error {
+func (_s *RagChunkSelect) Scan(ctx context.Context, v any) error {
 	ctx = setContextOp(ctx, _s.ctx, ent.OpQuerySelect)
 	if err := _s.prepareQuery(ctx); err != nil {
 		return err
 	}
-	return scanWithInterceptors[*RagUserQuery, *RagUserSelect](ctx, _s.RagUserQuery, _s, _s.inters, v)
+	return scanWithInterceptors[*RagChunkQuery, *RagChunkSelect](ctx, _s.RagChunkQuery, _s, _s.inters, v)
 }
 
-func (_s *RagUserSelect) sqlScan(ctx context.Context, root *RagUserQuery, v any) error {
+func (_s *RagChunkSelect) sqlScan(ctx context.Context, root *RagChunkQuery, v any) error {
 	selector := root.sqlQuery(ctx)
 	aggregation := make([]string, 0, len(_s.fns))
 	for _, fn := range _s.fns {
