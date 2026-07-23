@@ -12,7 +12,7 @@
 hz new --idl idl/health.thrift --module github.com/PolarishT/sales-agent --service sales-agent --sort_router
 ```
 
-仓库已经包含生成结果。修改 `idl/health.thrift` 或 `ent/schema` 后运行：
+仓库已经包含生成结果。`idl` 是 HTTP 请求、响应、方法和路由的唯一契约源；修改任一 Thrift IDL（当前包括 `idl/health.thrift` 和 `idl/rag_ingestion.thrift`）或 `ent/schema` 后都要运行：
 
 ```bash
 make generate
