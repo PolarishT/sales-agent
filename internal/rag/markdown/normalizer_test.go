@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/PolarishT/sales-agent/internal/rag/domain"
+	"github.com/yuin/goldmark/ast"
 )
 
 func TestNormalizerCanonicalizesVisibleMarkdownDeterministically(t *testing.T) {
@@ -116,6 +117,111 @@ func TestNormalizerDoesNotMutateParsedDocument(t *testing.T) {
 	}
 	if got := document.Blocks[0].HeadingPath[0]; got != "  手机  规格  " {
 		t.Fatalf("input heading was mutated to %q", got)
+	}
+}
+
+func TestNormalizerPreservesCodeBoundaryBlankLines(t *testing.T) {
+	document := domain.ParsedDocument{Blocks: []domain.MarkdownBlock{{
+		Type:    domain.BlockCode,
+		Content: "\nline one\n  line two\n\n",
+	}}}
+
+	normalized, err := NewNormalizer().Normalize(context.Background(), document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := normalized.Blocks[0].Content; got != "\nline one\n  line two\n" {
+		t.Fatalf("code = %q", got)
+	}
+}
+
+func TestNormalizerPreservesNestedCodeStructure(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		blockType domain.BlockType
+		want      string
+	}{
+		{
+			name:      "list",
+			source:    "- 规格\n  ```text\n    IP68\n  ```\n",
+			blockType: domain.BlockList,
+			want:      "- 规格\n  ```text\n    IP68\n  ```",
+		},
+		{
+			name:      "quote",
+			source:    "> 规格\n>\n> ```text\n>   IP68\n> ```\n",
+			blockType: domain.BlockQuote,
+			want:      "规格\n  IP68",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := NewParser().Parse(context.Background(), []byte(test.source))
+			if err != nil {
+				t.Fatal(err)
+			}
+			filtered, err := NewFilter().Apply(context.Background(), parsed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			normalized, err := NewNormalizer().Normalize(context.Background(), filtered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(normalized.Blocks) != 1 || normalized.Blocks[0].Type != test.blockType {
+				t.Fatalf("blocks = %+v", normalized.Blocks)
+			}
+			if got := normalized.Blocks[0].Content; got != test.want {
+				t.Fatalf("content = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestNormalizerKeepsNestedListUnderOrderedParent(t *testing.T) {
+	source := []byte("1. 父项\n   - 子项\n")
+	parsed, err := NewParser().Parse(context.Background(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := NewFilter().Apply(context.Background(), parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized, err := NewNormalizer().Normalize(context.Background(), filtered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalized.Blocks) != 1 {
+		t.Fatalf("blocks = %+v", normalized.Blocks)
+	}
+	content := normalized.Blocks[0].Content
+	if content != "1. 父项\n   - 子项" {
+		t.Fatalf("content = %q", content)
+	}
+
+	root := parseFragment([]byte(content))
+	if root.ChildCount() != 1 {
+		t.Fatalf("round-trip root children = %d", root.ChildCount())
+	}
+	list, ok := root.FirstChild().(*ast.List)
+	if !ok || !list.IsOrdered() {
+		t.Fatalf("round-trip root = %T", root.FirstChild())
+	}
+	item, ok := list.FirstChild().(*ast.ListItem)
+	if !ok {
+		t.Fatalf("round-trip item = %T", list.FirstChild())
+	}
+	nested := false
+	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+		if childList, ok := child.(*ast.List); ok && !childList.IsOrdered() {
+			nested = true
+		}
+	}
+	if !nested {
+		t.Fatalf("normalized nested list became a top-level block: %q", content)
 	}
 }
 

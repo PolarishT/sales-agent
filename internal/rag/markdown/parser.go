@@ -109,19 +109,44 @@ func nodeText(node ast.Node, source []byte) string {
 				builder.Write(typed.Value)
 			case *ast.AutoLink:
 				builder.Write(typed.Label(source))
+			case *ast.CodeBlock:
+				appendNestedCode(&builder, typed.Lines().Value(source))
+				return ast.WalkSkipChildren, nil
+			case *ast.FencedCodeBlock:
+				appendNestedCode(&builder, typed.Lines().Value(source))
+				return ast.WalkSkipChildren, nil
 			}
 			return ast.WalkContinue, nil
 		}
 
 		switch current.(type) {
 		case *ast.Paragraph, *ast.ListItem, *extensionast.TableHeader, *extensionast.TableRow:
-			builder.WriteByte('\n')
+			appendLineBreak(&builder)
 		case *extensionast.TableCell:
 			builder.WriteByte('\t')
 		}
 		return ast.WalkContinue, nil
 	})
-	return strings.TrimSpace(builder.String())
+	return strings.Trim(builder.String(), "\n")
+}
+
+func appendNestedCode(builder *strings.Builder, code []byte) {
+	if len(code) == 0 {
+		return
+	}
+	appendLineBreak(builder)
+	builder.Write(code)
+	appendLineBreak(builder)
+}
+
+func appendLineBreak(builder *strings.Builder) {
+	if builder.Len() == 0 {
+		return
+	}
+	value := builder.String()
+	if value[len(value)-1] != '\n' {
+		builder.WriteByte('\n')
+	}
 }
 
 func sourceRange(node ast.Node, starts []int) (int, int) {

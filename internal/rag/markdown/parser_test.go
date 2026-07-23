@@ -81,11 +81,73 @@ func TestParserPreservesStandaloneImagesAndThematicBreaks(t *testing.T) {
 	if got := document.Blocks[0].Type; got != domain.BlockThematicBreak {
 		t.Fatalf("thematic break type = %q", got)
 	}
+	if got := document.Blocks[0]; got.StartLine != 1 || got.EndLine != 1 || got.RawContent != "---" {
+		t.Fatalf("thematic break source = %+v", got)
+	}
 	if got := document.Blocks[1]; got.Type != domain.BlockImage || got.Content != "正面图" {
 		t.Fatalf("image block = %+v", got)
 	}
 	if got := document.Blocks[2]; got.Type != domain.BlockImage || got.Content != "" {
 		t.Fatalf("empty-alt image block = %+v", got)
+	}
+}
+
+func TestParserPreservesCodeInsideContainers(t *testing.T) {
+	tests := []struct {
+		name       string
+		source     string
+		blockType  domain.BlockType
+		wantPrefix string
+		wantCode   string
+	}{
+		{
+			name:      "list with fenced code only",
+			source:    "- ```text\n    IP68\n  ```\n",
+			blockType: domain.BlockList,
+			wantCode:  "  IP68",
+		},
+		{
+			name:       "list with text and indented code",
+			source:     "- 规格\n\n      IP68\n      199g\n",
+			blockType:  domain.BlockList,
+			wantPrefix: "规格\n",
+			wantCode:   "IP68\n199g",
+		},
+		{
+			name:      "quote with indented code only",
+			source:    ">     IP68\n>       199g\n",
+			blockType: domain.BlockQuote,
+			wantCode:  "IP68\n  199g",
+		},
+		{
+			name:       "quote with text and fenced code",
+			source:     "> 规格\n>\n> ```text\n>   IP68\n> ```\n",
+			blockType:  domain.BlockQuote,
+			wantPrefix: "规格\n",
+			wantCode:   "  IP68",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := NewParser().Parse(context.Background(), []byte(test.source))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(parsed.Blocks) != 1 || parsed.Blocks[0].Type != test.blockType {
+				t.Fatalf("blocks = %+v", parsed.Blocks)
+			}
+			content := parsed.Blocks[0].Content
+			if test.wantPrefix != "" && !strings.HasPrefix(content, test.wantPrefix) {
+				t.Fatalf("content = %q, want prefix %q", content, test.wantPrefix)
+			}
+			if !strings.Contains(content, test.wantCode) {
+				t.Fatalf("content = %q, want code %q", content, test.wantCode)
+			}
+			if _, err := NewFilter().Apply(context.Background(), parsed); err != nil {
+				t.Fatalf("filter removed code container: %v", err)
+			}
+		})
 	}
 }
 
