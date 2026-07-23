@@ -3,13 +3,14 @@ package domain
 type BlockType string
 
 const (
-	BlockParagraph BlockType = "paragraph"
-	BlockList      BlockType = "list"
-	BlockTable     BlockType = "table"
-	BlockQuote     BlockType = "quote"
-	BlockCode      BlockType = "code"
-	BlockRawHTML   BlockType = "raw_html"
-	BlockImage     BlockType = "image"
+	BlockParagraph     BlockType = "paragraph"
+	BlockList          BlockType = "list"
+	BlockTable         BlockType = "table"
+	BlockQuote         BlockType = "quote"
+	BlockCode          BlockType = "code"
+	BlockRawHTML       BlockType = "raw_html"
+	BlockImage         BlockType = "image"
+	BlockThematicBreak BlockType = "thematic_break"
 )
 
 type MarkdownBlock struct {
