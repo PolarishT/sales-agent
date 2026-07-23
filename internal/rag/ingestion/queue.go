@@ -196,16 +196,20 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	select {
 	case <-idle:
 	case <-ctx.Done():
+		shutdownErr := ctx.Err()
 		e.abort()
-		return ctx.Err()
+		<-workerDone
+		return shutdownErr
 	}
 
 	select {
 	case <-workerDone:
 		return nil
 	case <-ctx.Done():
+		shutdownErr := ctx.Err()
 		e.abort()
-		return ctx.Err()
+		<-workerDone
+		return shutdownErr
 	}
 }
 

@@ -250,7 +250,7 @@ func TestFailurePersistenceRetriesAreBounded(t *testing.T) {
 	}
 }
 
-func TestShutdownDeadlineDoesNotWaitForFailurePersistenceRetries(t *testing.T) {
+func TestShutdownDeadlineCancelsPersistenceAndWaitsForWorkerExit(t *testing.T) {
 	ingestionID := uuid.New()
 	repository := &fakeRepository{
 		getTask: domain.Task{
@@ -284,23 +284,21 @@ func TestShutdownDeadlineDoesNotWaitForFailurePersistenceRetries(t *testing.T) {
 		t.Fatalf("Shutdown() error = %v", err)
 	}
 	if elapsed := time.Since(startedAt); elapsed > 200*time.Millisecond {
-		t.Fatalf("Shutdown waited for persistence retries: %s", elapsed)
+		t.Fatalf("Shutdown exceeded bounded cancellation time: %s", elapsed)
 	}
-	if !executor.IsScheduled(ingestionID) {
-		t.Fatal("task was unscheduled before persistence retries completed")
-	}
-
-	waitUntilUnscheduled(t, executor, ingestionID)
 	select {
 	case <-executor.workerDone:
-	case <-time.After(time.Second):
-		t.Fatal("worker did not exit after bounded retries")
+	default:
+		t.Fatal("Shutdown returned before worker goroutines exited")
+	}
+	if executor.IsScheduled(ingestionID) {
+		t.Fatal("Shutdown returned with a scheduled task")
 	}
 	repository.mu.Lock()
 	calls := repository.markFailedCalls
 	repository.mu.Unlock()
-	if calls != failurePersistenceAttempts {
-		t.Fatalf("MarkFailed calls = %d, want %d", calls, failurePersistenceAttempts)
+	if calls != 1 {
+		t.Fatalf("MarkFailed calls = %d, want one canceled best-effort attempt", calls)
 	}
 }
 

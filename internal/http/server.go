@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"time"
@@ -18,14 +19,18 @@ const (
 	defaultReadinessTimeout = 2 * time.Second
 	defaultRequestTimeout   = 30 * time.Second
 	defaultShutdownTimeout  = 10 * time.Second
+
+	multipartRequestOverheadBytes = int64(1 << 20)
+	defaultMaxRequestBodySize     = 6 << 20
 )
 
 type Options struct {
-	Address         string
-	RequestTimeout  time.Duration
-	ShutdownTimeout time.Duration
-	Listener        net.Listener
-	Dependencies    Dependencies
+	Address            string
+	RequestTimeout     time.Duration
+	ShutdownTimeout    time.Duration
+	MaxRequestBodySize int
+	Listener           net.Listener
+	Dependencies       Dependencies
 }
 
 func NewServer(options Options) *server.Hertz {
@@ -40,6 +45,10 @@ func NewServer(options Options) *server.Hertz {
 	if options.Dependencies.ReadinessTimeout <= 0 {
 		options.Dependencies.ReadinessTimeout = defaultReadinessTimeout
 	}
+	maxRequestBodySize := options.MaxRequestBodySize
+	if maxRequestBodySize <= 0 {
+		maxRequestBodySize = defaultMaxRequestBodySize
+	}
 
 	listenOption := server.WithHostPorts(options.Address)
 	if options.Listener != nil {
@@ -50,6 +59,7 @@ func NewServer(options Options) *server.Hertz {
 		server.WithReadTimeout(requestTimeout),
 		server.WithWriteTimeout(requestTimeout),
 		server.WithExitWaitTime(shutdownTimeout),
+		server.WithMaxRequestBodySize(maxRequestBodySize),
 		server.WithHandleMethodNotAllowed(true),
 	)
 	h.Use(
@@ -64,6 +74,17 @@ func NewServer(options Options) *server.Hertz {
 		WriteError(ctx, consts.StatusMethodNotAllowed, "error", "METHOD_NOT_ALLOWED", "请求方法不受支持")
 	})
 	return h
+}
+
+func MultipartRequestBodySize(maxUploadBytes int64) (int, error) {
+	if maxUploadBytes <= 0 {
+		return 0, errors.New("RAG 上传大小上限必须大于 0")
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if maxUploadBytes > maxInt-multipartRequestOverheadBytes {
+		return 0, errors.New("RAG 上传大小上限无法转换为 Hertz 请求体上限")
+	}
+	return int(maxUploadBytes + multipartRequestOverheadBytes), nil
 }
 
 func WriteError(ctx *app.RequestContext, statusCode int, status, code, message string) {

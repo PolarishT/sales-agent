@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"mime/multipart"
+	"net"
+	stdhttp "net/http"
 	"strings"
 	"testing"
 	"time"
@@ -265,6 +268,147 @@ func TestRAGCreateIngestionReadsAtMostMaximumPlusOne(t *testing.T) {
 		t.Fatalf("status = %d, want 413; body = %s", response.Code, response.Body.Bytes())
 	}
 	assertJSONField(t, response.Body.Bytes(), "code", domain.CodeFileTooLarge)
+}
+
+func TestRAGMultipartTCPFileBoundaryReachesHandler(t *testing.T) {
+	const maximum = int64(5 << 20)
+	ingestionID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
+	submittedSizes := make(chan int, 2)
+	api := &fakeIngestionAPI{submit: func(
+		_ context.Context,
+		documentKey string,
+		_ string,
+		raw []byte,
+	) (domain.Submission, error) {
+		submittedSizes <- len(raw)
+		if int64(len(raw)) > maximum {
+			return domain.Submission{}, domain.NewError(
+				domain.CodeFileTooLarge,
+				"Markdown 文件不能超过 5 MiB",
+				nil,
+			)
+		}
+		return domain.Submission{Task: domain.Task{
+			IngestionID: ingestionID,
+			DocumentKey: documentKey,
+			Status:      domain.StatusQueued,
+			Stage:       domain.StageQueued,
+			CreatedAt:   time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC),
+		}}, nil
+	}}
+	baseURL := startTCPTestServer(t, api, maximum)
+
+	t.Run("exactly five MiB", func(t *testing.T) {
+		response := performMultipartHTTPRequest(
+			t,
+			baseURL,
+			"catalog/exact",
+			"exact.md",
+			bytes.Repeat([]byte("x"), int(maximum)),
+			nil,
+		)
+		defer response.Body.Close()
+		if response.StatusCode != stdhttp.StatusAccepted {
+			raw, _ := io.ReadAll(response.Body)
+			t.Fatalf("status = %d, want 202; body = %q", response.StatusCode, raw)
+		}
+		if got := <-submittedSizes; got != int(maximum) {
+			t.Fatalf("Submit() bytes = %d, want %d", got, maximum)
+		}
+	})
+
+	t.Run("five MiB plus one", func(t *testing.T) {
+		response := performMultipartHTTPRequest(
+			t,
+			baseURL,
+			"catalog/too-large",
+			"too-large.md",
+			bytes.Repeat([]byte("x"), int(maximum+1)),
+			nil,
+		)
+		defer response.Body.Close()
+		raw, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != stdhttp.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413; body = %q", response.StatusCode, raw)
+		}
+		requestID := response.Header.Get("X-Request-ID")
+		if requestID == "" {
+			t.Fatalf("X-Request-ID is empty; body = %q", raw)
+		}
+		assertJSONField(t, raw, "code", domain.CodeFileTooLarge)
+		assertJSONField(t, raw, "request_id", requestID)
+		if got := <-submittedSizes; got != int(maximum+1) {
+			t.Fatalf("Submit() bytes = %d, want %d", got, maximum+1)
+		}
+	})
+}
+
+func TestRAGMultipartTCPRejectsOversizedEnvelopeBeforeSubmit(t *testing.T) {
+	const maximum = int64(5 << 20)
+	requestBodyLimit, err := httpapi.MultipartRequestBodySize(maximum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitted := make(chan struct{}, 1)
+	api := &fakeIngestionAPI{submit: func(
+		context.Context,
+		string,
+		string,
+		[]byte,
+	) (domain.Submission, error) {
+		submitted <- struct{}{}
+		return domain.Submission{}, nil
+	}}
+	baseURL := startTCPTestServer(t, api, maximum)
+
+	tests := []struct {
+		name        string
+		fileName    string
+		extraFields map[string]string
+	}{
+		{
+			name:     "filename",
+			fileName: strings.Repeat("f", requestBodyLimit) + ".md",
+		},
+		{
+			name:     "extra field",
+			fileName: "small.md",
+			extraFields: map[string]string{
+				"padding": strings.Repeat("p", requestBodyLimit),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := performMultipartHTTPRequest(
+				t,
+				baseURL,
+				"catalog/envelope",
+				test.fileName,
+				[]byte("small"),
+				test.extraFields,
+			)
+			defer response.Body.Close()
+			raw, err := io.ReadAll(io.LimitReader(response.Body, 4097))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.StatusCode != stdhttp.StatusRequestEntityTooLarge {
+				t.Fatalf("status = %d, want 413; body = %q", response.StatusCode, raw)
+			}
+			if len(raw) > 4096 {
+				t.Fatalf("error response bytes = %d, want at most 4096", len(raw))
+			}
+			select {
+			case <-submitted:
+				t.Fatal("oversized multipart envelope reached Submit")
+			default:
+			}
+		})
+	}
 }
 
 func TestRAGCreateIngestionMapsTypedErrors(t *testing.T) {
@@ -582,4 +726,97 @@ func multipartWithFiles(
 	return &ut.Body{Body: bytes.NewReader(body.Bytes()), Len: body.Len()}, []ut.Header{{
 		Key: "Content-Type", Value: writer.FormDataContentType(),
 	}}
+}
+
+func startTCPTestServer(
+	t *testing.T,
+	api ingestion.API,
+	maxUploadBytes int64,
+) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	maxRequestBodySize, err := httpapi.MultipartRequestBodySize(maxUploadBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := httpapi.NewServer(httpapi.Options{
+		Listener:           listener,
+		RequestTimeout:     5 * time.Second,
+		ShutdownTimeout:    time.Second,
+		MaxRequestBodySize: maxRequestBodySize,
+		Dependencies: httpapi.Dependencies{
+			HealthChecker:    &fakeHealthChecker{},
+			AgentRunner:      fakeAgentRunner{},
+			IngestionService: api,
+			MaxUploadBytes:   maxUploadBytes,
+			ReadinessTimeout: time.Second,
+		},
+	})
+	register(h)
+	runResult := make(chan error, 1)
+	go func() {
+		runResult <- h.Run()
+	}()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = h.Shutdown(ctx)
+		_ = listener.Close()
+		select {
+		case <-runResult:
+		case <-time.After(time.Second):
+			t.Error("Hertz test server did not stop")
+		}
+	})
+	return "http://" + listener.Addr().String()
+}
+
+func performMultipartHTTPRequest(
+	t *testing.T,
+	baseURL string,
+	documentKey string,
+	fileName string,
+	content []byte,
+	extraFields map[string]string,
+) *stdhttp.Response {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("document_key", documentKey); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range extraFields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	part, err := writer.CreateFormFile("file", fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request, err := stdhttp.NewRequest(
+		stdhttp.MethodPost,
+		baseURL+"/api/v1/rag/ingestions",
+		bytes.NewReader(body.Bytes()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Expect", "100-continue")
+	client := &stdhttp.Client{Timeout: 10 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response
 }

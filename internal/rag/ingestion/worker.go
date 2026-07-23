@@ -140,6 +140,9 @@ func (e *Executor) persistFailure(
 		if err == nil {
 			return task
 		}
+		if e.ctx.Err() != nil {
+			break
+		}
 	}
 	slog.Error(
 		"记录 RAG 导入失败状态失败",
@@ -158,7 +161,7 @@ func (e *Executor) persistFailureAttempt(
 	failure domain.Failure,
 ) (task domain.Task, err error) {
 	ctx, cancel := context.WithTimeout(
-		context.Background(),
+		e.ctx,
 		failurePersistenceAttemptTimeout,
 	)
 	defer cancel()

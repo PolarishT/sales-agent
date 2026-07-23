@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,11 +39,17 @@ func run() error {
 	}
 	configureLogger(settings.LogLevel)
 
+	maxRequestBodySize, err := httpapi.MultipartRequestBodySize(settings.RAGMaxUploadBytes)
+	if err != nil {
+		return fmt.Errorf("计算 HTTP 请求体上限: %w", err)
+	}
+
 	client, err := ent.Open("postgres", settings.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("打开 PostgreSQL Ent 客户端: %w", err)
 	}
-	defer client.Close()
+	databaseCloser := &onceCloseComponent{component: client}
+	defer databaseCloser.Close()
 
 	ingestionRepository, err := databaseplatform.NewIngestionRepository(client)
 	if err != nil {
@@ -120,10 +127,11 @@ func run() error {
 	defer listener.Close()
 
 	h := httpapi.NewServer(httpapi.Options{
-		Address:         settings.Address,
-		RequestTimeout:  settings.RequestTimeout,
-		ShutdownTimeout: settings.ShutdownTimeout,
-		Listener:        listener,
+		Address:            settings.Address,
+		RequestTimeout:     settings.RequestTimeout,
+		ShutdownTimeout:    settings.ShutdownTimeout,
+		MaxRequestBodySize: maxRequestBodySize,
+		Listener:           listener,
 		Dependencies: httpapi.Dependencies{
 			HealthChecker:    databaseplatform.NewReadiness(client),
 			AgentRunner:      graph,
@@ -137,7 +145,13 @@ func run() error {
 	slog.Info("导购后端已监听", "environment", settings.Environment, "address", listener.Addr().String())
 	signalContext, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 	defer stopSignals()
-	serveErr := serve(signalContext, h, executor, settings.ShutdownTimeout)
+	serveErr := serve(
+		signalContext,
+		h,
+		executor,
+		databaseCloser,
+		settings.ShutdownTimeout,
+	)
 	executorStopped = true
 	return serveErr
 }
@@ -159,10 +173,28 @@ type shutdownComponent interface {
 	Shutdown(context.Context) error
 }
 
+type closeComponent interface {
+	Close() error
+}
+
+type onceCloseComponent struct {
+	component closeComponent
+	once      sync.Once
+	err       error
+}
+
+func (c *onceCloseComponent) Close() error {
+	c.once.Do(func() {
+		c.err = c.component.Close()
+	})
+	return c.err
+}
+
 func serve(
 	ctx context.Context,
 	h runtimeServer,
 	worker shutdownComponent,
+	database closeComponent,
 	shutdownTimeout time.Duration,
 ) error {
 	runErrors := make(chan error, 1)
@@ -172,7 +204,7 @@ func serve(
 
 	select {
 	case err := <-runErrors:
-		shutdownErr := shutdownRuntime(h, worker, shutdownTimeout)
+		shutdownErr := stopRuntime(h, worker, database, shutdownTimeout)
 		if err == nil {
 			if shutdownErr != nil {
 				return errors.Join(
@@ -187,8 +219,22 @@ func serve(
 			shutdownErr,
 		)
 	case <-ctx.Done():
-		return shutdownRuntime(h, worker, shutdownTimeout)
+		return stopRuntime(h, worker, database, shutdownTimeout)
 	}
+}
+
+func stopRuntime(
+	h shutdownComponent,
+	worker shutdownComponent,
+	database closeComponent,
+	shutdownTimeout time.Duration,
+) error {
+	shutdownErr := shutdownRuntime(h, worker, shutdownTimeout)
+	databaseErr := database.Close()
+	if databaseErr != nil {
+		databaseErr = fmt.Errorf("关闭 PostgreSQL Ent 客户端: %w", databaseErr)
+	}
+	return errors.Join(shutdownErr, databaseErr)
 }
 
 func shutdownRuntime(

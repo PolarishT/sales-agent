@@ -65,6 +65,19 @@ func (f *recordingShutdownComponent) Shutdown(ctx context.Context) error {
 	return f.err
 }
 
+type recordingCloseComponent struct {
+	name  string
+	calls *[]string
+	err   error
+}
+
+func (f *recordingCloseComponent) Close() error {
+	if f.calls != nil {
+		*f.calls = append(*f.calls, f.name)
+	}
+	return f.err
+}
+
 func TestShutdownRuntimeStopsHTTPBeforeWorkerWithOneDeadline(t *testing.T) {
 	calls := make([]string, 0, 2)
 	contexts := make([]context.Context, 0, 2)
@@ -121,8 +134,9 @@ func TestServeShutsDownWorkerAfterUnexpectedHTTPStop(t *testing.T) {
 		runError: runError,
 		shutdown: httpShutdown,
 	}
+	database := &recordingCloseComponent{}
 
-	err := serve(context.Background(), httpServer, worker, time.Second)
+	err := serve(context.Background(), httpServer, worker, database, time.Second)
 
 	if !errors.Is(err, runError) {
 		t.Fatalf("serve() error = %v, want run error", err)
@@ -146,10 +160,11 @@ func TestServeUsesShutdownLifecycleAfterContextCancellation(t *testing.T) {
 		releaseRun: releaseRun,
 		shutdown:   httpShutdown,
 	}
+	database := &recordingCloseComponent{}
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() {
-		result <- serve(ctx, httpServer, worker, time.Second)
+		result <- serve(ctx, httpServer, worker, database, time.Second)
 	}()
 	<-runStarted
 	cancel()
@@ -161,4 +176,51 @@ func TestServeUsesShutdownLifecycleAfterContextCancellation(t *testing.T) {
 	if got := strings.Join(calls, ","); got != "http,worker" {
 		t.Fatalf("shutdown order = %q, want http,worker", got)
 	}
+}
+
+func TestStopRuntimeWaitsForDeadlineWorkerBeforeClosingDatabase(t *testing.T) {
+	calls := make([]string, 0, 4)
+	httpServer := &recordingShutdownComponent{name: "http", calls: &calls}
+	worker := shutdownComponentFunc(func(ctx context.Context) error {
+		calls = append(calls, "worker.cancel")
+		<-ctx.Done()
+		calls = append(calls, "worker.done")
+		return ctx.Err()
+	})
+	database := &recordingCloseComponent{name: "database.close", calls: &calls}
+
+	err := stopRuntime(httpServer, worker, database, 20*time.Millisecond)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stopRuntime() error = %v, want deadline exceeded", err)
+	}
+	if got := strings.Join(calls, ","); got != "http,worker.cancel,worker.done,database.close" {
+		t.Fatalf("runtime stop order = %q", got)
+	}
+}
+
+func TestOnceCloseComponentClosesUnderlyingComponentOnce(t *testing.T) {
+	closeError := errors.New("close")
+	calls := make([]string, 0, 1)
+	underlying := &recordingCloseComponent{
+		name:  "database.close",
+		calls: &calls,
+		err:   closeError,
+	}
+	closer := &onceCloseComponent{component: underlying}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := closer.Close(); !errors.Is(err, closeError) {
+			t.Fatalf("Close() attempt %d error = %v", attempt, err)
+		}
+	}
+	if got := strings.Join(calls, ","); got != "database.close" {
+		t.Fatalf("close calls = %q, want one call", got)
+	}
+}
+
+type shutdownComponentFunc func(context.Context) error
+
+func (f shutdownComponentFunc) Shutdown(ctx context.Context) error {
+	return f(ctx)
 }
